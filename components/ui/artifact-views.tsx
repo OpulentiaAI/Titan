@@ -59,7 +59,7 @@ const PageContextArtifactComponent: React.FC<PageContextArtifactProps> = ({
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:underline dark:text-blue-400"
+                className="text-primary hover:underline"
                 aria-label={link.text || link.href}
               >
                 {link.text || link.href}
@@ -123,8 +123,16 @@ const PageContextArtifactComponent: React.FC<PageContextArtifactProps> = ({
 
         {pageContext.success !== undefined && (
           <div className="mt-2 text-xs text-muted-foreground">
-            Status: {pageContext.success ? "✅ Success" : "❌ Failed"} 
-            {pageContext.duration && ` (${pageContext.duration}ms)`}
+            <span className="mr-1">Status:</span>
+            <span className={cn(
+              "inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 font-medium",
+              pageContext.success ? "text-foreground" : "text-destructive"
+            )}>
+              {pageContext.success ? "✅ Success" : "❌ Failed"}
+            </span>
+            {typeof pageContext.duration === "number" && pageContext.duration > 0 && (
+              <span className="ml-1">({pageContext.duration}ms)</span>
+            )}
           </div>
         )}
       </div>
@@ -200,10 +208,8 @@ const ErrorAnalysisArtifactComponent: React.FC<ErrorAnalysisArtifactProps> = ({
 
   return (
     <MinorErrorBoundary componentName="ErrorAnalysisArtifact">
-      <div className={cn("rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 p-4", className)}>
-        <h3 className="text-sm font-semibold mb-3 text-red-900 dark:text-red-200">
-          🔍 Error Analysis
-        </h3>
+      <div className={cn("rounded-lg border bg-card p-4", className)}>
+        <h3 className="text-sm font-semibold mb-3">🔍 Error Analysis</h3>
         
         <div className="space-y-4 text-sm">
           <div>
@@ -215,8 +221,8 @@ const ErrorAnalysisArtifactComponent: React.FC<ErrorAnalysisArtifactProps> = ({
 
           {errorAnalysis.blame && (
             <div>
-              <h4 className="text-xs font-medium mb-2 text-amber-600 dark:text-amber-400">Root Cause</h4>
-              <div className="bg-background rounded border border-amber-200 dark:border-amber-800 p-2 text-xs whitespace-pre-wrap">
+              <h4 className="text-xs font-medium mb-2 text-muted-foreground">Root Cause</h4>
+              <div className="bg-background rounded border p-2 text-xs whitespace-pre-wrap">
                 {errorAnalysis.blame}
               </div>
             </div>
@@ -224,8 +230,8 @@ const ErrorAnalysisArtifactComponent: React.FC<ErrorAnalysisArtifactProps> = ({
 
           {errorAnalysis.improvement && (
             <div>
-              <h4 className="text-xs font-medium mb-2 text-green-600 dark:text-green-400">Improvements</h4>
-              <div className="bg-background rounded border border-green-200 dark:border-green-800 p-2 text-xs whitespace-pre-wrap">
+              <h4 className="text-xs font-medium mb-2 text-muted-foreground">Improvements</h4>
+              <div className="bg-background rounded border p-2 text-xs whitespace-pre-wrap">
                 {errorAnalysis.improvement}
               </div>
             </div>
@@ -288,21 +294,16 @@ const ExecutionTrajectoryArtifactComponent: React.FC<ExecutionTrajectoryArtifact
         <div
           key={`step-${idx}-${step.step || idx}`}
           className={cn(
-            "rounded border p-2 text-xs transition-colors",
-            step.success
-              ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
-              : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+            "rounded border p-2 text-xs transition-colors bg-muted"
           )}
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="font-mono font-medium shrink-0">Step {step.step || idx + 1}:</span>
               <span className="font-medium truncate">{step.action || "Unknown action"}</span>
-              {step.success ? (
-                <span className="text-green-600 shrink-0" aria-label="Success">✅</span>
-              ) : (
-                <span className="text-red-600 shrink-0" aria-label="Failed">❌</span>
-              )}
+              <span className="shrink-0" aria-label={step.success ? "Success" : "Failed"}>
+                {step.success ? "✅" : "❌"}
+              </span>
             </div>
             {formattedTime && (
               <span className="text-muted-foreground shrink-0">
@@ -329,11 +330,11 @@ const ExecutionTrajectoryArtifactComponent: React.FC<ExecutionTrajectoryArtifact
             <div>
               <span>Total Steps:</span> <span className="font-medium">{stats.total}</span>
             </div>
-            <div className="text-green-600 dark:text-green-400">
+            <div>
               <span>✅ Success:</span> <span className="font-medium">{stats.successCount}</span>
             </div>
             {stats.failureCount > 0 && (
-              <div className="text-red-600 dark:text-red-400">
+              <div>
                 <span>❌ Failed:</span> <span className="font-medium">{stats.failureCount}</span>
               </div>
             )}
@@ -417,7 +418,7 @@ const WorkflowMetadataArtifactComponent: React.FC<WorkflowMetadataArtifactProps>
                 href={finalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:underline dark:text-blue-400 break-all"
+                className="text-primary hover:underline break-all"
                 aria-label={`Navigate to ${finalUrl}`}
               >
                 {finalUrl}

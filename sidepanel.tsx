@@ -2114,14 +2114,14 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                             {/* Display workflow task list (mastra-hitl inspired clean UI) */}
                             {message.workflowTasks && message.workflowTasks.length > 0 && (
                               <WorkflowTaskList
-                                tasks={message.workflowTasks}
+                                  tasks={message.workflowTasks}
                                 autoExpand={index === messages.length - 1}
                                 emphasizedTasks={new Set(
                                   message.workflowTasks
                                     .filter(t => t.status === 'new' || t.status === 'in_progress')
                                     .map(t => t.id)
                                 )}
-                              />
+                                />
                             )}
                             
                             {/* Display reasoning tokens (OpenRouter/Atlas chain-of-thought) - AI Elements primitive */}

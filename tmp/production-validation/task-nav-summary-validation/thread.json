@@ -1,0 +1,15 @@
+{
+  "id": "thread-E7X3SHctCyZhB86n_Ettr",
+  "messages": [
+    {
+      "id": "1",
+      "role": "user",
+      "content": "Navigate to https://example.com and provide a summary of what you find"
+    },
+    {
+      "id": "2",
+      "role": "assistant",
+      "content": "Task completed successfully"
+    }
+  ]
+}

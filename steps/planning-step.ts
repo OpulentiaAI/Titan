@@ -89,12 +89,12 @@ const planningTimer = planningDebug.time('Planning Step');
        gapCount: planningResult?.gaps?.length || 0,
      });
      
-    if (!planningResult || !planningResult.plan || !planningResult.plan.steps || planningResult.plan.steps.length === 0) {
-      planningDebug.error('Planning returned empty or invalid result', {
-        planningResult: planningResult,
-        hasPlan: !!planningResult?.plan,
-        hasSteps: !!planningResult?.plan?.steps,
-        stepsLength: planningResult?.plan?.steps?.length || 0,
+     if (!planningResult || !planningResult.plan || !planningResult.plan.steps || planningResult.plan.steps.length === 0) {
+       planningDebug.error('Planning returned empty or invalid result', {
+         planningResult: planningResult,
+         hasPlan: !!planningResult?.plan,
+         hasSteps: !!planningResult?.plan?.steps,
+         stepsLength: planningResult?.plan?.steps?.length || 0,
         hasApiKey: !!input.settings.apiKey,
         provider: input.settings.provider,
       });
@@ -106,7 +106,7 @@ const planningTimer = planningDebug.time('Planning Step');
         // No API key available, throw error to trigger fallback
         throw new Error(`Planning requires API key but none provided.`);
       }
-    }
+     }
     
 const duration = Date.now() - startTime;
      

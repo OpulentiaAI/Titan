@@ -1,0 +1,14 @@
+{
+  "summary": {
+    "executionTimeSec": 3.359,
+    "success": true,
+    "totalOperations": 3,
+    "userMessages": 1,
+    "llmCalls": 3
+  },
+  "metrics": {
+    "duration": 3359,
+    "steps": 3,
+    "finalUrl": "https://example.com"
+  }
+}

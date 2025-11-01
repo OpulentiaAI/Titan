@@ -673,60 +673,60 @@ export async function browserAutomationWorkflow(
               }
               
               toolDebug.debug('Executing navigate tool', { url, attempt });
-              const res = await context.executeTool('navigate', { url });
-              toolDebug.debug('Navigate tool completed', { 
-                success: res?.success,
-                resultUrl: res?.url,
+            const res = await context.executeTool('navigate', { url });
+            toolDebug.debug('Navigate tool completed', { 
+              success: res?.success,
+              resultUrl: res?.url,
                 attempt,
-              });
-              
-              const enriched = await enrichToolResponse(res, 'navigate');
-              const toolDuration = Date.now() - toolStartTime;
-              toolTimer();
-              
-              toolDebug.info('Navigation completed successfully', {
-                stepNum,
-                url,
-                duration: toolDuration,
-                enrichedUrl: enriched.url,
+            });
+            
+            const enriched = await enrichToolResponse(res, 'navigate');
+            const toolDuration = Date.now() - toolStartTime;
+            toolTimer();
+            
+            toolDebug.info('Navigation completed successfully', {
+              stepNum,
+              url,
+              duration: toolDuration,
+              enrichedUrl: enriched.url,
                 attempts: attempt + 1,
-              });
-              execSteps.push({ 
-                step: stepNum, 
-                action: 'navigate', 
-                url: enriched.url || url, 
-                success: enriched.success 
-              });
-              executionTrajectory.push({
-                step: stepNum,
-                action: 'navigate',
-                url: enriched.url || url,
-                success: enriched.success,
-                timestamp: Date.now(),
-              });
-              
-              // Update with success, reasoning, and pageContext
+            });
+            execSteps.push({ 
+              step: stepNum, 
+              action: 'navigate', 
+              url: enriched.url || url, 
+              success: enriched.success 
+            });
+            executionTrajectory.push({
+              step: stepNum,
+              action: 'navigate',
+              url: enriched.url || url,
+              success: enriched.success,
+              timestamp: Date.now(),
+            });
+            
+            // Update with success, reasoning, and pageContext
               const successMessage = attempt > 0 
                 ? `🔷 **Step ${stepNum}: Navigation Complete** ✅ (succeeded after ${attempt} ${attempt === 1 ? 'retry' : 'retries'})\n\nSuccessfully navigated to ${enriched.url || url}\n⏱️ Duration: ${toolDuration}ms\n\n**Reasoning:** Page loaded and ready for next action.`
                 : `🔷 **Step ${stepNum}: Navigation Complete** ✅\n\nSuccessfully navigated to ${enriched.url || url}\n⏱️ Duration: ${toolDuration}ms\n\n**Reasoning:** Page loaded and ready for next action.`;
               
-              context.updateLastMessage((msg) => ({
-                ...msg,
+            context.updateLastMessage((msg) => ({
+              ...msg,
                 content: successMessage,
-                pageContext: enriched.pageContext,
-                toolExecutions: [{
-                  toolName: 'navigate',
-                  status: 'completed',
-                  params: { url },
-                  result: enriched,
-                  duration: toolDuration,
-                  timestamp: Date.now(),
-                }],
-                executionTrajectory: executionTrajectory.slice(),
-              }));
-              
-              return enriched;
-            } catch (error: any) {
+              pageContext: enriched.pageContext,
+              toolExecutions: [{
+                toolName: 'navigate',
+                status: 'completed',
+                params: { url },
+                result: enriched,
+                duration: toolDuration,
+                timestamp: Date.now(),
+              }],
+              executionTrajectory: executionTrajectory.slice(),
+            }));
+            
+            return enriched;
+          } catch (error: any) {
               lastError = error;
               const isLastAttempt = attempt === maxRetries;
               
@@ -739,14 +739,14 @@ export async function browserAutomationWorkflow(
               
               if (isLastAttempt) {
                 // Last attempt failed - throw error
-                const toolDuration = Date.now() - toolStartTime;
-                toolTimer();
+            const toolDuration = Date.now() - toolStartTime;
+            toolTimer();
                 
-                try {
+            try {
                   toolDebug.error('Navigation tool failed after all retries', error, toolDuration);
-                } catch (logError) {
-                  console.error(`❌ [Tool: navigate] Debug logging failed:`, logError);
-                }
+            } catch (logError) {
+              console.error(`❌ [Tool: navigate] Debug logging failed:`, logError);
+            }
                 
                 const errorMessage = `❌ [Tool: navigate] Failed after ${maxRetries + 1} attempts (${toolDuration}ms): ${error?.message || error}`;
                 console.error(errorMessage);
@@ -780,8 +780,8 @@ export async function browserAutomationWorkflow(
                   timestamp: Date.now(),
                 });
                 
-                throw error;
-              }
+            throw error;
+          }
               
               // Continue to next retry
               continue;
@@ -1664,9 +1664,9 @@ export async function browserAutomationWorkflow(
            summaryLength: summarization.summary.length,
          });
         
-        // Get final page context for summary message
-        const finalPageContext = await context.getPageContextAfterAction().catch(() => null);
-        
+          // Get final page context for summary message
+          const finalPageContext = await context.getPageContextAfterAction().catch(() => null);
+          
         // If streaming was used, the content was already updated in real-time
         // We just need to add the artifacts (summarization, trajectory, pageContext, metadata)
         if (shouldStream && context.updateLastMessage) {
@@ -1679,24 +1679,6 @@ export async function browserAutomationWorkflow(
               content: shouldUpdateContent 
                 ? `---\n## Summary & Next Steps\n\n${summarization.summary}`
                 : msg.content, // Keep streamed content as-is
-              summarization: summarization,
-              executionTrajectory: executionTrajectory.slice(),
-              pageContext: finalPageContext,
-              workflowMetadata: {
-                workflowId,
-                conversationId: input.metadata?.conversationId,
-                totalDuration,
-                finalUrl,
-              },
-              workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
-            };
-          });
-        } else {
-          // Non-streaming path: push complete message with all artifacts
-          context.pushMessage({
-            id: summaryMessageId,
-            role: 'assistant',
-            content: `---\n## Summary & Next Steps\n\n${summarization.summary}`,
             summarization: summarization,
             executionTrajectory: executionTrajectory.slice(),
             pageContext: finalPageContext,
@@ -1706,8 +1688,26 @@ export async function browserAutomationWorkflow(
               totalDuration,
               finalUrl,
             },
-            workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+              workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+            };
           });
+        } else {
+          // Non-streaming path: push complete message with all artifacts
+          context.pushMessage({
+            id: summaryMessageId,
+            role: 'assistant',
+            content: `---\n## Summary & Next Steps\n\n${summarization.summary}`,
+                summarization: summarization,
+                executionTrajectory: executionTrajectory.slice(),
+                pageContext: finalPageContext,
+                workflowMetadata: {
+                  workflowId,
+                  conversationId: input.metadata?.conversationId,
+                  totalDuration,
+                  finalUrl,
+                },
+                 workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+            });
         }
       } else {
         workflowDebug.warn('Summarization failed or empty', {

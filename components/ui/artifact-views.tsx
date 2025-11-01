@@ -18,6 +18,7 @@ import type {
 import { SummaryArtifact } from "./summary-artifact";
 export { SummaryArtifact };
 export type { SummaryArtifactProps } from "./summary-artifact";
+import { GradientHeading } from "./gradient-heading";
 
 /**
  * Page Context Artifact View
@@ -34,18 +35,10 @@ const PageContextArtifactComponent: React.FC<PageContextArtifactProps> = ({
 }) => {
   // Safely extract context with fallback
   const ctx = pageContext?.pageContext;
-  
-  if (!ctx) {
-    return (
-      <div className={cn("rounded-lg border bg-card p-4 text-sm text-muted-foreground", className)}>
-        No page context available
-      </div>
-    );
-  }
 
   // Memoize link preview to avoid re-rendering
   const linkPreview = useMemo(() => {
-    if (!ctx.links || ctx.links.length === 0) return null;
+    if (!ctx || !ctx.links || ctx.links.length === 0) return null;
     
     return (
       <div className="mb-4">
@@ -74,11 +67,11 @@ const PageContextArtifactComponent: React.FC<PageContextArtifactProps> = ({
         </div>
       </div>
     );
-  }, [ctx.links]);
+  }, [ctx]);
 
   // Memoize text preview
   const textPreview = useMemo(() => {
-    if (!ctx.text) return null;
+    if (!ctx?.text) return null;
     const preview = ctx.text.substring(0, 500);
     const hasMore = ctx.text.length > 500;
     
@@ -91,13 +84,23 @@ const PageContextArtifactComponent: React.FC<PageContextArtifactProps> = ({
         </div>
       </div>
     );
-  }, [ctx.text]);
+  }, [ctx]);
+
+  if (!ctx) {
+    return (
+      <div className={cn("rounded-lg border bg-card p-4 text-sm text-muted-foreground", className)}>
+        No page context available
+      </div>
+    );
+  }
 
   return (
     <MinorErrorBoundary componentName="PageContextArtifact">
       <div className={cn("rounded-lg border bg-card p-4", className)}>
         <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2">📄 Page Context</h3>
+          <GradientHeading size="xl" weight="semi" className="mb-2">
+            📄 Page Context
+          </GradientHeading>
           <div className="space-y-2 text-xs">
             <div>
               <span className="text-muted-foreground">URL:</span>{" "}
@@ -209,7 +212,9 @@ const ErrorAnalysisArtifactComponent: React.FC<ErrorAnalysisArtifactProps> = ({
   return (
     <MinorErrorBoundary componentName="ErrorAnalysisArtifact">
       <div className={cn("rounded-lg border bg-card p-4", className)}>
-        <h3 className="text-sm font-semibold mb-3">🔍 Error Analysis</h3>
+        <GradientHeading size="xl" weight="semi" className="mb-3">
+          🔍 Error Analysis
+        </GradientHeading>
         
         <div className="space-y-4 text-sm">
           <div>
@@ -263,26 +268,22 @@ const ExecutionTrajectoryArtifactComponent: React.FC<ExecutionTrajectoryArtifact
   trajectory,
   className,
 }) => {
-  if (!trajectory || trajectory.length === 0) {
-    return (
-      <div className={cn("rounded-lg border bg-card p-4 text-sm text-muted-foreground", className)}>
-        No execution steps recorded
-      </div>
-    );
-  }
+  const isEmpty = !trajectory || trajectory.length === 0;
 
   // Memoize statistics
   const stats = useMemo(() => {
-    const successCount = trajectory.filter(s => s?.success).length;
+    const total = trajectory?.length || 0;
+    const successCount = trajectory ? trajectory.filter(s => s?.success).length : 0;
     return {
-      total: trajectory.length,
+      total,
       successCount,
-      failureCount: trajectory.length - successCount,
+      failureCount: total - successCount,
     };
   }, [trajectory]);
 
   // Memoize step rendering for performance
   const renderedSteps = useMemo(() => {
+    if (!trajectory) return [] as React.ReactNode[];
     return trajectory.map((step, idx) => {
       if (!step) return null;
 
@@ -301,7 +302,7 @@ const ExecutionTrajectoryArtifactComponent: React.FC<ExecutionTrajectoryArtifact
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="font-mono font-medium shrink-0">Step {step.step || idx + 1}:</span>
               <span className="font-medium truncate">{step.action || "Unknown action"}</span>
-              <span className="shrink-0" aria-label={step.success ? "Success" : "Failed"}>
+              <span className="shrink-0">
                 {step.success ? "✅" : "❌"}
               </span>
             </div>
@@ -321,11 +322,21 @@ const ExecutionTrajectoryArtifactComponent: React.FC<ExecutionTrajectoryArtifact
     }).filter(Boolean);
   }, [trajectory]);
 
+  if (isEmpty) {
+    return (
+      <div className={cn("rounded-lg border bg-card p-4 text-sm text-muted-foreground", className)}>
+        No execution steps recorded
+      </div>
+    );
+  }
+
   return (
     <MinorErrorBoundary componentName="ExecutionTrajectoryArtifact">
       <div className={cn("rounded-lg border bg-card p-4", className)}>
         <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2">🔄 Execution Trajectory</h3>
+          <GradientHeading size="xl" weight="semi" className="mb-2">
+            🔄 Execution Trajectory
+          </GradientHeading>
           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
             <div>
               <span>Total Steps:</span> <span className="font-medium">{stats.total}</span>
@@ -385,7 +396,9 @@ const WorkflowMetadataArtifactComponent: React.FC<WorkflowMetadataArtifactProps>
   return (
     <MinorErrorBoundary componentName="WorkflowMetadataArtifact">
       <div className={cn("rounded-lg border bg-muted/50 p-3", className)}>
-        <h4 className="text-xs font-semibold mb-2 text-muted-foreground">Workflow Metadata</h4>
+        <GradientHeading as="h4" size="lg" weight="semi" className="mb-2">
+          Workflow Metadata
+        </GradientHeading>
         <div className="space-y-1 text-xs font-mono">
           {metadata.workflowId && (
             <div className="break-all">

@@ -176,41 +176,41 @@ Provide your analysis following the format specified in the system prompt.`;
       };
     } else {
       // Non-streaming path
-      const result = await generateText({
-        model: input.model,
-        system: systemPrompt,
-        prompt: userPrompt,
-        tools,
-        maxTokens: 600,
-        temperature: 0.7,
-        maxSteps: 3, // Allow up to 3 tool calls for research
-      });
-      
-      const duration = Date.now() - startTime;
-      
-      console.log(`${LOG_PREFIX} ✅ Generation complete in ${duration}ms`);
-      console.log(`${LOG_PREFIX} Text length: ${result.text?.length || 0} chars`);
-      console.log(`${LOG_PREFIX} Tool calls: ${result.steps?.length || 0}`);
-      
-      // Extract search results if any
-      if (result.steps) {
-        for (const step of result.steps) {
-          if (step.toolCalls) {
-            for (const call of step.toolCalls) {
-              if (call.toolName === 'searchWeb' && call.result) {
-                searchResults.push(...(call.result.results || []));
-              }
+    const result = await generateText({
+      model: input.model,
+      system: systemPrompt,
+      prompt: userPrompt,
+      tools,
+      maxTokens: 600,
+      temperature: 0.7,
+      maxSteps: 3, // Allow up to 3 tool calls for research
+    });
+    
+    const duration = Date.now() - startTime;
+    
+    console.log(`${LOG_PREFIX} ✅ Generation complete in ${duration}ms`);
+    console.log(`${LOG_PREFIX} Text length: ${result.text?.length || 0} chars`);
+    console.log(`${LOG_PREFIX} Tool calls: ${result.steps?.length || 0}`);
+    
+    // Extract search results if any
+    if (result.steps) {
+      for (const step of result.steps) {
+        if (step.toolCalls) {
+          for (const call of step.toolCalls) {
+            if (call.toolName === 'searchWeb' && call.result) {
+              searchResults.push(...(call.result.results || []));
             }
           }
         }
       }
-      
-      return {
-        summary: result.text || '',
-        duration,
-        success: true,
-        searchResults: searchResults.length > 0 ? searchResults : undefined,
-      };
+    }
+    
+    return {
+      summary: result.text || '',
+      duration,
+      success: true,
+      searchResults: searchResults.length > 0 ? searchResults : undefined,
+    };
     }
     
   } catch (error: any) {

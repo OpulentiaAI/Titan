@@ -1,0 +1,11 @@
+# DSPyground runtime data
+.dspyground/data/
+.dspyground/runs.json
+
+# Environment variables
+.env
+.env.local
+
+# Node modules (if using local installation)
+node_modules/
+

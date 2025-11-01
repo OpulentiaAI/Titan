@@ -1,0 +1,25 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.js",
+    "css": "sidepanel.css",
+    "baseColor": "slate",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils"
+  },
+  "registries": {
+    "@cult-ui-pro": {
+      "url": "https://pro.cult-ui.com/api/registry/{name}",
+      "headers": {
+        "X-API-Key": "${CULT_PRO_TOKEN}"
+      }
+    }
+  }
+}

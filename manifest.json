@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Opulent Chat Sidebar",
+  "version": "1.0.0",
+  "description": "AI-powered sidebar chat with computer use capabilities",
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "tabs",
+    "history",
+    "bookmarks",
+    "webNavigation",
+    "scripting",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open Opulent Sidebar",
+    "default_icon": "icons/icon.png"
+  },
+  "options_page": "settings.html",
+  "icons": {
+    "16": "icons/icon.png",
+    "48": "icons/icon.png",
+    "128": "icons/icon.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "fonts/gt-america/*.otf",
+        "fonts/gt-america/*.woff",
+        "fonts/gt-america/*.woff2"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "name": "atlas-test-kitchen",
+  "version": "1.0.0",
+  "description": "End-to-end test suite for Atlas browser extension with Braintrust observability",
+  "type": "module",
+  "scripts": {
+    "test": "tsx --require ./setup.ts main.ts",
+    "test:unit": "tsx --require ./setup.ts unit/run-all.ts",
+    "test:planning": "tsx --require ./setup.ts unit/planning-step.test.ts",
+    "test:workflow-enhancements": "tsx --require ./setup.ts unit/workflow-enhancements.test.ts",
+    "test:prod": "tsx --require ./setup.ts unit/production-config.test.ts",
+    "test:braintrust-errors": "tsx --require ./setup.ts unit/braintrust-error-handling.test.ts",
+    "test:e2e": "tsx --require ./setup.ts e2e/workflow-e2e.test.ts",
+    "test:e2e:comprehensive": "tsx --require ./setup.ts e2e/comprehensive-e2e.test.ts",
+    "test:e2e:errors": "tsx --require ./setup.ts e2e/error-scenarios.test.ts",
+    "test:e2e:all": "npm run test:e2e:comprehensive && npm run test:e2e:errors",
+    "test:trace": "tsx --require ./setup.ts e2e/trace-capture.test.ts",
+    "test:master": "tsx --require ./setup.ts unit/master-test-runner.ts",
+    "test:full": "npm run test:unit && npm run test:prod && npm run test:e2e:all && npm run test:trace",
+    "eval": "dotenv -e .env -- tsx --require ./setup.ts braintrust eval atlas.eval.ts",
+    "eval:streaming": "dotenv -e .env -- tsx --require ./setup.ts braintrust eval atlas.eval.streaming.ts",
+    "eval:google": "dotenv -e .env -- tsx --require ./setup.ts braintrust eval atlas.eval.ts",
+    "eval:gateway": "dotenv -e .env -- tsx --require ./setup.ts braintrust eval atlas.eval.ts",
+    "eval:comprehensive": "dotenv -e .env -- tsx --require ./setup.ts braintrust eval comprehensive-atlas.eval.ts",
+    "eval:comprehensive:trials": "TRIAL_COUNT=3 dotenv -e .env -- tsx --require ./setup.ts braintrust eval comprehensive-atlas.eval.ts",
+    "eval:submodular": "export $(cat .env | grep -v '^#' | xargs) && tsx --require ./setup.ts comprehensive-submodular-eval.ts",
+    "analyze:metrics": "tsx --require ./setup.ts analyze-braintrust-metrics.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/gateway": "^2.0.0",
+    "@ai-sdk/google": "^2.0.23",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
+    "@opentelemetry/resources": "^2.2.0",
+    "@opentelemetry/sdk-trace-base": "^2.2.0",
+    "@opentelemetry/semantic-conventions": "^1.37.0",
+    "ai": "^6.0.0-beta.88",
+    "autoevals": "^0.0.131",
+    "braintrust": "^0.4.3",
+    "puppeteer": "^23.5.0",
+    "puppeteer-core": "^23.5.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "dotenv-cli": "^11.0.0"
+  }
+}

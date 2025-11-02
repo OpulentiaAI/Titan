@@ -2,7 +2,7 @@
 // Polishes and finalizes workflow reports with editor-style refinement
 
 export interface FinalizerOptions {
-  provider: 'google' | 'gateway';
+  provider: 'google' | 'gateway' | 'nim' | 'openrouter';
   apiKey: string;
   model?: string;
   braintrustApiKey?: string;
@@ -27,6 +27,20 @@ export async function finalizeReport(
     const { createGateway } = await import('@ai-sdk/gateway');
     const client = createGateway({ apiKey: opts.apiKey });
     model = client(opts.model || 'google:gemini-2.0-flash-exp');
+  } else if (opts.provider === 'nim') {
+    const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+    const client = createOpenAICompatible({
+      name: 'nim',
+      baseURL: 'https://integrate.api.nvidia.com/v1',
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+    });
+    model = client.chatModel(opts.model || 'deepseek-ai/deepseek-r1');
+  } else if (opts.provider === 'openrouter') {
+    const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+    const client = createOpenRouter({ apiKey: opts.apiKey });
+    model = client(opts.model || 'minimax/minimax-m2');
   } else {
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
     const client = createGoogleGenerativeAI({ apiKey: opts.apiKey });

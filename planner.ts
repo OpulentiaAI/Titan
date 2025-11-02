@@ -36,7 +36,7 @@ export interface PlanningResult {
 export async function generateExecutionPlan(
   userQuery: string,
   opts: {
-    provider: 'google' | 'gateway';
+    provider: 'google' | 'gateway' | 'nim' | 'openrouter';
     apiKey: string;
     model?: string;
     braintrustApiKey?: string;
@@ -69,6 +69,30 @@ export async function generateExecutionPlan(
       const client = createGateway({ apiKey: opts.apiKey });
       model = client(opts.model || 'google:gemini-2.5-flash');
       console.log('✅ [Planner] AI Gateway client created successfully');
+    } else if (opts.provider === 'nim') {
+      console.log('🔑 [Planner] Creating NVIDIA NIM client...');
+      const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+      if (!opts.apiKey) {
+        throw new Error('NVIDIA NIM API key is required for planning');
+      }
+      const client = createOpenAICompatible({
+        name: 'nim',
+        baseURL: 'https://integrate.api.nvidia.com/v1',
+        headers: {
+          Authorization: `Bearer ${opts.apiKey}`,
+        },
+      });
+      model = client.chatModel(opts.model || 'deepseek-ai/deepseek-r1');
+      console.log('✅ [Planner] NVIDIA NIM client created successfully');
+    } else if (opts.provider === 'openrouter') {
+      console.log('🔑 [Planner] Creating OpenRouter client...');
+      const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+      if (!opts.apiKey) {
+        throw new Error('OpenRouter API key is required for planning');
+      }
+      const client = createOpenRouter({ apiKey: opts.apiKey });
+      model = client(opts.model || 'minimax/minimax-m2');
+      console.log('✅ [Planner] OpenRouter client created successfully');
     } else {
       console.log('🔑 [Planner] Creating Google Generative AI client...');
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
@@ -397,7 +421,7 @@ For the given user query and context, generate a step-by-step plan. For each ste
 export async function generateExecutionPlanWithTelemetry(
   userQuery: string,
   opts: {
-    provider: 'google' | 'gateway';
+    provider: 'google' | 'gateway' | 'nim';
     apiKey: string;
     model?: string;
     braintrustApiKey?: string;

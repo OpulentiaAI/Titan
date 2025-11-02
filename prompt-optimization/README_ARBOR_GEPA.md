@@ -54,7 +54,29 @@ npm install
 # Environment variables
 export AI_GATEWAY_API_KEY="your-api-key"  # For GEPA reflection
 export OPENAI_API_KEY="your-api-key"      # Alternative for evaluation
+export NIM_API_KEY="your-nvidia-nim-key"  # For NVIDIA NIM provider (optional)
 ```
+
+#### Provider Support
+
+The hybrid optimization system supports multiple AI providers:
+
+- **Google AI**: Primary provider with Gemini models
+- **OpenAI**: Alternative provider for evaluation
+- **NVIDIA NIM**: High-performance inference with specialized models
+- **OpenRouter**: Access to diverse models including MiniMax-M2
+
+**NVIDIA NIM Integration**:
+- **Working Models**: `deepseek-ai/deepseek-r1` (18→335 tokens, excellent reasoning)
+- **Limited Access**: `minimaxai/minimax-m2` (requires special subscription)
+- **Setup**: Add `NIM_API_KEY` environment variable
+- **Usage**: Set provider to `'nim'` in configuration
+
+**OpenRouter Integration**:
+- **Available Models**: `minimax/minimax-m2` (Mixture-of-Experts with interleaved thinking)
+- **Access**: Freely available through OpenRouter platform
+- **Setup**: Add `OPENROUTER_API_KEY` environment variable
+- **Usage**: Set provider to `'openrouter'` in configuration
 
 ### Basic Usage
 

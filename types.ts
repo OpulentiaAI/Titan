@@ -6,7 +6,7 @@ export type ToolMode = 'tool-router';
 export type ComputerUseEngine = 'google' | 'gateway-flash-lite';
 
 export interface Settings {
-  provider: 'google' | 'gateway';
+  provider: 'google' | 'gateway' | 'nim' | 'openrouter';
   apiKey: string;
   model: string;
   toolMode?: ToolMode;

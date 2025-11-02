@@ -10,7 +10,7 @@ import { z } from 'zod';
 export const BrowserAutomationWorkflowInputSchema = z.object({
   userQuery: z.string().min(1, 'User query cannot be empty').max(5000, 'User query too long').describe('The user\'s browser automation request'),
   settings: z.object({
-    provider: z.enum(['google', 'gateway'], { errorMap: () => ({ message: 'Provider must be "google" or "gateway"' }) }),
+    provider: z.enum(['google', 'gateway', 'nim', 'openrouter'], { errorMap: () => ({ message: 'Provider must be "google", "gateway", "nim", or "openrouter"' }) }),
     apiKey: z.string().min(1, 'API key is required'),
     model: z.string().min(1, 'Model name is required').max(200),
     braintrustApiKey: z.string().min(1).optional(),

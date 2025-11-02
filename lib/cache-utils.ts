@@ -26,7 +26,7 @@ const generateExecutionPlanTool = tool({
     userQuery: z.string(),
     currentUrl: z.string().optional(),
     pageContext: z.any().optional(),
-    provider: z.enum(['google', 'gateway']),
+    provider: z.enum(['google', 'gateway', 'nim']),
     apiKey: z.string(),
     model: z.string().optional(),
   }),
@@ -34,7 +34,7 @@ const generateExecutionPlanTool = tool({
     userQuery: string;
     currentUrl?: string;
     pageContext?: any;
-    provider: 'google' | 'gateway';
+    provider: 'google' | 'gateway' | 'nim';
     apiKey: string;
     model?: string;
   }) => {
@@ -130,7 +130,7 @@ const generateExecutionPlanWithTelemetryTool = tool({
     userQuery: z.string(),
     currentUrl: z.string().optional(),
     pageContext: z.any().optional(),
-    provider: z.enum(['google', 'gateway']),
+    provider: z.enum(['google', 'gateway', 'nim']),
     apiKey: z.string(),
     model: z.string().optional(),
     braintrustApiKey: z.string().optional(),
@@ -139,7 +139,7 @@ const generateExecutionPlanWithTelemetryTool = tool({
     userQuery: string;
     currentUrl?: string;
     pageContext?: any;
-    provider: 'google' | 'gateway';
+    provider: 'google' | 'gateway' | 'nim';
     apiKey: string;
     model?: string;
     braintrustApiKey?: string;

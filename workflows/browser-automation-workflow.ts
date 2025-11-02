@@ -603,6 +603,20 @@ export async function browserAutomationWorkflow(
       model = gatewayClient(modelName);
       if (isAnthropicModel) {
       }
+    } else if (input.settings.provider === 'nim') {
+      const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+      const nimClient = createOpenAICompatible({
+        name: 'nim',
+        baseURL: 'https://integrate.api.nvidia.com/v1',
+        headers: {
+          Authorization: `Bearer ${input.settings.apiKey}`,
+        },
+      });
+      model = nimClient.chatModel(modelName || 'deepseek-ai/deepseek-r1');
+    } else if (input.settings.provider === 'openrouter') {
+      const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+      const openrouterClient = createOpenRouter({ apiKey: input.settings.apiKey });
+      model = openrouterClient(modelName || 'minimax/minimax-m2');
     } else {
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
       const googleClient = createGoogleGenerativeAI({ apiKey: input.settings.apiKey });

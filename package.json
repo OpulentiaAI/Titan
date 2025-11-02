@@ -21,7 +21,11 @@
     "optimize:fast": "npx tsx prompt-optimization/run-gepa-fast.ts",
     "optimize:extract": "npx tsx prompt-optimization/extract-best-prompts.ts",
     "optimize:apply": "npx tsx prompt-optimization/apply-optimized-prompts.ts",
-    "optimize:add-osworld": "npx tsx prompt-optimization/add-osworld-samples.ts"
+    "optimize:add-osworld": "npx tsx prompt-optimization/add-osworld-samples.ts",
+    "optimize:demo": "npx tsx prompt-optimization/examples/example-hybrid-workflow.ts",
+    "optimize:arbor-gepa": "npx tsx prompt-optimization/examples/example-hybrid-workflow.ts",
+    "optimize:samples": "echo 'Create my-tools.ts first - see QUICKSTART.md' && exit 1",
+    "optimize:gepa-only": "echo 'Create gepa-only.ts first - see QUICKSTART.md' && exit 1"
   },
   "dependencies": {
     "@ai-sdk-tools/agents": "^1.0.0",

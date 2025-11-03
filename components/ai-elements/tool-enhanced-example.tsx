@@ -112,11 +112,11 @@ export const EnhancedTool = ({
   };
 
   return (
-    <div className={cn('mt-2 overflow-hidden rounded-md border border-gray-200 dark:border-gray-700', className)}>
+    <div className={cn('mt-2 overflow-hidden rounded-md border border-border/40 bg-accent/5 backdrop-blur-sm', className)}>
       {/* Header with trigger */}
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger
-          className="bg-gray-50 dark:bg-gray-800 h-auto w-full justify-between rounded-b-none px-3 py-1.5 font-normal hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center text-left"
+          className="bg-transparent h-auto w-full justify-between rounded-b-none px-3 py-1.5 font-normal hover:bg-muted/30 transition-colors flex items-center text-left"
         >
           <div className="flex items-center gap-2">
             {getStateIcon()}
@@ -129,8 +129,8 @@ export const EnhancedTool = ({
             {/* Action buttons */}
             {(state === 'output-error' && onRetry) && (
               <Actions>
-                <Action 
-                  tooltip="Retry" 
+                <Action
+                  tooltip="Retry"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRetry();
@@ -150,12 +150,12 @@ export const EnhancedTool = ({
           </div>
         </CollapsibleTrigger>
 
-        <CollapsibleContent className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+        <CollapsibleContent className="border-t border-border/30 bg-transparent">
           <div className="space-y-3 p-3">
             {/* AI Reasoning Section */}
             {thinking && (
-              <Reasoning 
-                isStreaming={state === 'input-streaming'} 
+              <Reasoning
+                isStreaming={state === 'input-streaming'}
                 defaultOpen={state === 'input-streaming'}
               >
                 <ReasoningTrigger title="AI Reasoning" />
@@ -168,11 +168,11 @@ export const EnhancedTool = ({
             {/* Input Section with Syntax Highlighting */}
             {input && Object.keys(input).length > 0 && (
               <div>
-                <h4 className="text-gray-600 dark:text-gray-400 mb-1.5 font-medium text-xs">
+                <h4 className="text-muted-foreground mb-1.5 font-medium text-xs">
                   Input
                 </h4>
-                <CodeBlock 
-                  code={formatValue(input)} 
+                <CodeBlock
+                  code={formatValue(input)}
                   language="json"
                   className="text-xs"
                 >
@@ -184,11 +184,11 @@ export const EnhancedTool = ({
             {/* Output Section with Syntax Highlighting */}
             {output && (
               <div>
-                <h4 className="text-gray-600 dark:text-gray-400 mb-1.5 font-medium text-xs">
+                <h4 className="text-muted-foreground mb-1.5 font-medium text-xs">
                   Output
                 </h4>
-                <CodeBlock 
-                  code={formatValue(output)} 
+                <CodeBlock
+                  code={formatValue(output)}
                   language="json"
                   className="text-xs max-h-60 overflow-auto"
                 >
@@ -200,8 +200,8 @@ export const EnhancedTool = ({
             {/* Error Section */}
             {state === 'output-error' && toolPart.errorText && (
               <div>
-                <h4 className="mb-2 text-sm font-medium text-red-500">Error</h4>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800 p-2 text-sm text-red-900 dark:text-red-200">
+                <h4 className="mb-2 text-sm font-medium text-red-600 dark:text-red-400">Error</h4>
+                <div className="bg-red-50/50 dark:bg-red-950/20 rounded border border-red-200/50 dark:border-red-800/30 p-2 text-sm text-red-900 dark:text-red-200">
                   {toolPart.errorText}
                 </div>
               </div>
@@ -209,7 +209,7 @@ export const EnhancedTool = ({
 
             {/* Processing State */}
             {state === 'input-streaming' && (
-              <div className="text-gray-600 dark:text-gray-400 text-sm flex items-center gap-2">
+              <div className="text-muted-foreground text-sm flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Processing tool call...
               </div>
@@ -217,7 +217,7 @@ export const EnhancedTool = ({
 
             {/* Metadata */}
             {toolCallId && (
-              <div className="text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 pt-2 text-xs">
+              <div className="text-muted-foreground border-t border-border/20 pt-2 text-xs">
                 <span className="font-mono">Call ID: {toolCallId}</span>
               </div>
             )}

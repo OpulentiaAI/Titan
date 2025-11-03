@@ -219,8 +219,8 @@ async function main() {
       gepa: {
         maxRollouts: 10, // Reduced for demo
         batchSize: 3,
-        reflectionModel: 'google/gemini-2.5-pro',
-        taskModel: 'google/gemini-2.5-flash',
+        reflectionModel: 'https://openrouter.ai/minimax/minimax-m2:free',
+        taskModel: 'https://build.nvidia.com/minimaxai/minimax-m2/modelcard',
         paretoSize: 5,
         metrics: ['accuracy', 'tool_usage', 'completeness']
       },

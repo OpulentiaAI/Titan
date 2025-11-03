@@ -109,32 +109,33 @@ export async function generateExecutionPlan(
   }
 
   // GEPA-inspired reflective schema: structured, granular, with validation
+  // Enhanced with strict constraints to prevent common LLM failures
   const instructionSchema = z.object({
-    step: z.number(),
+    step: z.number().int().min(1).describe('Step number (must be a positive integer)'),
     action: z.enum(['navigate', 'click', 'type', 'scroll', 'wait', 'getPageContext'])
       .describe('Action type - MUST be exactly one of: navigate, click, type, scroll, wait, getPageContext. Do NOT use waitForElement, waitFor, getContext, or other invalid values.'),
-    target: z.string().describe('URL, CSS selector, text to type, or description'),
-    reasoning: z.string().describe('Why this step is necessary (GEPA reflection)'),
-    expectedOutcome: z.string().describe('What should happen after this step'),
-    validationCriteria: z.string().optional().describe('How to verify this step succeeded'),
+    target: z.string().min(1).describe('URL, CSS selector, text to type, or description (cannot be empty)'),
+    reasoning: z.string().min(10).describe('Why this step is necessary - minimum 10 characters (GEPA reflection)'),
+    expectedOutcome: z.string().min(10).describe('What should happen after this step - minimum 10 characters'),
+    validationCriteria: z.string().min(10).optional().describe('How to verify this step succeeded - minimum 10 characters if provided'),
     fallbackAction: z.object({
-      action: z.string(),
-      target: z.string(),
-      reasoning: z.string(),
+      action: z.string().min(1),
+      target: z.string().min(1),
+      reasoning: z.string().min(10),
       // DO NOT nest fallbackActions - this is a simple one-level fallback only
     }).optional().strict().describe('Alternative approach if this step fails (DO NOT nest fallbackActions - keep it simple)'),
-  });
+  }).strict();
 
   const planSchema = z.object({
-    objective: z.string().describe('Clear, concise objective statement'),
-    approach: z.string().describe('High-level strategy (GEPA: reflect on best approach)'),
-    steps: z.array(instructionSchema).min(1).max(50),
-    criticalPaths: z.array(z.number()).describe('Step indices that are essential for success'),
-    estimatedSteps: z.number().int().min(1).max(50),
+    objective: z.string().min(10).describe('Clear, concise objective statement - minimum 10 characters'),
+    approach: z.string().min(20).describe('High-level strategy - minimum 20 characters (GEPA: reflect on best approach)'),
+    steps: z.array(instructionSchema).min(1).max(50).nonempty().describe('Array of steps - MUST contain at least 1 step'),
+    criticalPaths: z.array(z.number().int().min(1)).describe('Step indices that are essential for success (positive integers)'),
+    estimatedSteps: z.number().int().min(1).max(50).describe('Estimated number of steps (1-50)'),
     complexityScore: z.number().min(0).max(1).describe('Task complexity 0=easy, 1=very complex'),
-    potentialIssues: z.array(z.string()).max(10).describe('Anticipated challenges (GEPA: learn from past failures)'),
-    optimizations: z.array(z.string()).max(10).describe('GEPA-inspired improvements: efficiency gains, error reduction, etc.'),
-  });
+    potentialIssues: z.array(z.string().min(5)).max(10).describe('Anticipated challenges - each minimum 5 characters (GEPA: learn from past failures)'),
+    optimizations: z.array(z.string().min(5)).max(10).describe('GEPA-inspired improvements - each minimum 5 characters: efficiency gains, error reduction, etc.'),
+  }).strict();
 
   const evaluationSchema = z.object({
     plan: planSchema,
@@ -149,12 +150,15 @@ export async function generateExecutionPlan(
   // Run ID: run-1761855676725
   const systemPrompt = `You are an expert planning agent that creates step-by-step browser automation plans. Your plans must be granular, robust, and optimized for execution.
 
-**Available Actions:**
-*   \`navigate(url: string)\`: Navigates to a specific URL.
-*   \`type(selector: string, text: string)\`: Enters text into an element.
-*   \`click(selector: string)\`: Clicks an element.
-*   \`getPageContext()\`: Retrieves the current page's content and structure.
-*   \`waitForElement(selector: string)\`: Pauses execution until a specific element is visible.
+**Available Actions (MUST use these exact action names):**
+*   \`navigate\`: Navigates to a specific URL. Target: URL string.
+*   \`type\`: Enters text into an element. Target: CSS selector or element description.
+*   \`click\`: Clicks an element. Target: CSS selector or element description.
+*   \`scroll\`: Scrolls the page. Target: direction ('up', 'down', 'top', 'bottom') or selector.
+*   \`wait\`: Pauses execution for a duration or until element appears. Target: duration in seconds or CSS selector.
+*   \`getPageContext\`: Retrieves the current page's content and structure. Target: 'current_page' or specific section.
+
+**CRITICAL**: You MUST use ONLY these 6 action names exactly as shown above. Do NOT use "waitForElement", "waitFor", "getContext", "getPage", or any other variations.
 
 **Your Task:**
 For the given user query and context, generate a step-by-step plan. For each step, you **must** provide the following:
@@ -171,24 +175,28 @@ For the given user query and context, generate a step-by-step plan. For each ste
 **Current URL:** \`https://myapp.com/login\`
 
 **Execution Plan:**
-1.  **Action:** \`type("input[name='username']", "testuser")\`
+1.  **Action:** \`type\`
+    *   **Target:** "input[name='username']" with text "testuser"
     *   **Rationale:** To enter the username into the corresponding input field.
     *   **Validation:** The input field's value is "testuser".
-    *   **Fallback:** \`getPageContext()\` and retry with a more specific selector (e.g., \`#username\`). If it still fails, report "Username field not found."
+    *   **Fallback:** Use \`getPageContext\` and retry with a more specific selector (e.g., \`#username\`). If it still fails, report "Username field not found."
 
-2.  **Action:** \`type("input[name='password']", "password123")\`
+2.  **Action:** \`type\`
+    *   **Target:** "input[name='password']" with text "password123"
     *   **Rationale:** To enter the password into its field.
     *   **Validation:** The input field is populated (value is masked).
-    *   **Fallback:** \`getPageContext()\` and retry with a more specific selector (e.g., \`#password\`). If it still fails, report "Password field not found."
+    *   **Fallback:** Use \`getPageContext\` and retry with a more specific selector (e.g., \`#password\`). If it still fails, report "Password field not found."
 
-3.  **Action:** \`click("button[type='submit']")\`
+3.  **Action:** \`click\`
+    *   **Target:** "button[type='submit']"
     *   **Rationale:** To submit the login form.
     *   **Validation:** The page URL changes or a dashboard element appears.
     *   **Fallback:** Retry the click. If it fails again, try an alternative selector like \`button.login-btn\`. Report failure if unsuccessful.
 
-4.  **Action:** \`waitForElement("div.dashboard-header")\`
-    *   **Rationale:** To confirm a successful login by waiting for a key element on the post-login page.
-    *   **Validation:** The element \`div.dashboard-header\` becomes visible.
+4.  **Action:** \`wait\`
+    *   **Target:** "div.dashboard-header"
+    *   **Rationale:** To confirm a successful login by waiting for a key element on the post-login page to appear.
+    *   **Validation:** The element \`div.dashboard-header\` becomes visible within 5 seconds.
     *   **Fallback:** Check for an error message like \`.error-message\`. If found, report "Login failed: Invalid credentials." Otherwise, report "Login confirmation failed."`;
 
   const contextInfo = currentUrl 
@@ -303,7 +311,46 @@ For the given user query and context, generate a step-by-step plan. For each ste
               console.log('🔧 [Planner] Repaired: Flattened nested fallbackActions');
             }
           }
-          
+
+          // Fix: Ensure steps array is not empty
+          if (!parsed.plan?.steps || parsed.plan.steps.length === 0) {
+            console.log('🔧 [Planner] Repaired: Added default getPageContext step for empty steps array');
+            parsed.plan = parsed.plan || {};
+            parsed.plan.steps = [{
+              step: 1,
+              action: 'getPageContext',
+              target: 'current_page',
+              reasoning: 'Need to understand current page state before proceeding',
+              expectedOutcome: 'Page context retrieved (title, text, links, forms)',
+            }];
+            parsed.plan.estimatedSteps = 1;
+            parsed.plan.criticalPaths = [1];
+          }
+
+          // Fix: Ensure numeric fields are valid numbers
+          if (typeof parsed.plan?.complexityScore !== 'number' || isNaN(parsed.plan.complexityScore)) {
+            console.log('🔧 [Planner] Repaired: Set default complexityScore');
+            parsed.plan.complexityScore = 0.5;
+          }
+          if (typeof parsed.plan?.estimatedSteps !== 'number' || isNaN(parsed.plan.estimatedSteps)) {
+            console.log('🔧 [Planner] Repaired: Set estimatedSteps from steps array length');
+            parsed.plan.estimatedSteps = parsed.plan.steps?.length || 1;
+          }
+
+          // Fix: Ensure arrays exist and are arrays
+          if (!Array.isArray(parsed.plan?.criticalPaths)) {
+            console.log('🔧 [Planner] Repaired: Created default criticalPaths array');
+            parsed.plan.criticalPaths = [1];
+          }
+          if (!Array.isArray(parsed.plan?.potentialIssues)) {
+            console.log('🔧 [Planner] Repaired: Created default potentialIssues array');
+            parsed.plan.potentialIssues = [];
+          }
+          if (!Array.isArray(parsed.plan?.optimizations)) {
+            console.log('🔧 [Planner] Repaired: Created default optimizations array');
+            parsed.plan.optimizations = [];
+          }
+
           return JSON.stringify(parsed);
         } catch (parseError) {
           // If JSON parsing fails, return original text
@@ -362,19 +409,46 @@ For the given user query and context, generate a step-by-step plan. For each ste
     console.error('❌ [Planner] Planning generation failed after', totalDuration, 'ms');
     console.error('❌ [Planner] Error type:', error?.name || 'Unknown');
     console.error('❌ [Planner] Error message:', error?.message || String(error));
-    
+
+    // Log request parameters for debugging
+    console.error('❌ [Planner] Request Parameters:', {
+      query: userQuery.substring(0, 100) + (userQuery.length > 100 ? '...' : ''),
+      queryLength: userQuery.length,
+      provider: opts.provider,
+      model: opts.model || (opts.provider === 'gateway' ? 'google:gemini-2.5-flash' : 'gemini-2.5-flash'),
+      hasApiKey: !!opts.apiKey,
+      apiKeyLength: opts.apiKey?.length || 0,
+      currentUrl: currentUrl || 'none',
+      hasPageContext: !!pageContext,
+      pageContextKeys: pageContext ? Object.keys(pageContext) : [],
+    });
+
     // Use AI SDK's NoObjectGeneratedError check for better error handling
     // See: https://v6.ai-sdk.dev/docs/ai-sdk-core/generating-structured-data#error-handling
     const { NoObjectGeneratedError } = await import('ai');
     const isNoObjectError = NoObjectGeneratedError.isInstance?.(error) || error?.name === 'AI_NoObjectGeneratedError';
-    
+
     if (isNoObjectError || error?.message?.includes('schema')) {
       console.error('❌ [Planner] Schema validation failed - LLM response did not match expected structure');
       console.error('❌ [Planner] This may indicate the model needs clearer instructions or the schema is too strict');
-      
+
       // Log detailed error information if available
       if (isNoObjectError && error?.text) {
-        console.error('❌ [Planner] Generated text (may be invalid JSON):', error.text.substring(0, 500));
+        console.error('❌ [Planner] LLM Raw Response (first 1000 chars):', error.text.substring(0, 1000));
+        // Try to parse and show specific validation errors
+        try {
+          const parsed = JSON.parse(error.text);
+          console.error('❌ [Planner] Parsed response structure:', {
+            hasPlan: !!parsed.plan,
+            hasSteps: !!parsed.plan?.steps,
+            stepsCount: parsed.plan?.steps?.length || 0,
+            hasConfidence: !!parsed.confidence || !!parsed.plan?.confidence,
+            topLevelKeys: Object.keys(parsed),
+            planKeys: parsed.plan ? Object.keys(parsed.plan) : [],
+          });
+        } catch (parseErr) {
+          console.error('❌ [Planner] Failed to parse LLM response as JSON');
+        }
       }
       if (error?.cause) {
         console.error('❌ [Planner] Validation cause:', error.cause);
@@ -383,9 +457,9 @@ For the given user query and context, generate a step-by-step plan. For each ste
         console.error('❌ [Planner] Token usage:', error.usage);
       }
     }
-    
+
     if (error?.stack) {
-      console.error('❌ [Planner] Error stack:', error.stack);
+      console.error('❌ [Planner] Error stack (first 500 chars):', error.stack.substring(0, 500));
     }
     
     // Fallback to simple plan if generation fails
@@ -406,13 +480,86 @@ For the given user query and context, generate a step-by-step plan. For each ste
         ],
         criticalPaths: [1],
         estimatedSteps: 1,
-        complexityScore: 0.5,
+        complexityScore: calculateComplexityScore(userQuery),
         potentialIssues: ['Planning generation failed, using fallback'],
         optimizations: [],
       },
-      confidence: 0.3,
+      confidence: calculateConfidence(userQuery, calculateComplexityScore(userQuery), false),
     };
   }
+}
+
+/**
+ * Dynamically calculate complexity score based on task characteristics
+ */
+function calculateComplexityScore(userQuery: string, steps?: any[]): number {
+  const query = userQuery.toLowerCase();
+  
+  // Base complexity factors
+  let complexity = 0.2; // Base complexity
+  
+  // Multi-step indicators
+  const multiStepIndicators = ['then', 'and', 'after', 'next', 'finally'];
+  const hasMultipleSteps = multiStepIndicators.some(indicator => query.includes(indicator)) || 
+                          (steps && steps.length > 2);
+  if (hasMultipleSteps) complexity += 0.3;
+  
+  // Form interaction
+  const formIndicators = ['fill', 'form', 'input', 'submit', 'register', 'sign up', 'login'];
+  const hasFormInteraction = formIndicators.some(indicator => query.includes(indicator));
+  if (hasFormInteraction) complexity += 0.25;
+  
+  // Navigation complexity
+  const navIndicators = ['navigate', 'browse', 'click', 'menu', 'tab', 'page'];
+  const hasNavigation = navIndicators.some(indicator => query.includes(indicator));
+  if (hasNavigation) complexity += 0.15;
+  
+  // Search and filtering
+  const searchIndicators = ['search', 'find', 'filter', 'sort', 'query'];
+  const hasSearch = searchIndicators.some(indicator => query.includes(indicator));
+  if (hasSearch) complexity += 0.2;
+  
+  // Dynamic content
+  const dynamicIndicators = ['load', 'wait', 'ajax', 'js', 'javascript', 'dynamic'];
+  const hasDynamicContent = dynamicIndicators.some(indicator => query.includes(indicator));
+  if (hasDynamicContent) complexity += 0.15;
+  
+  // URL complexity
+  const urlMatch = userQuery.match(/https?:\/\/[^\s]+/g);
+  if (urlMatch && urlMatch.length > 1) complexity += 0.1; // Multiple URLs
+  if (urlMatch && urlMatch[0].includes('?')) complexity += 0.1; // Query parameters
+  
+  return Math.min(complexity, 1.0);
+}
+
+/**
+ * Dynamically calculate confidence based on task clarity and complexity
+ */
+function calculateConfidence(userQuery: string, complexityScore: number, hasValidSteps?: boolean): number {
+  let confidence = 0.9; // Base confidence
+  
+  // Reduce confidence for complex tasks
+  confidence -= (complexityScore * 0.3);
+  
+  // Query clarity indicators
+  const clearIndicators = ['navigate to', 'go to', 'open', 'visit', 'browse to'];
+  const hasClearDirection = clearIndicators.some(indicator => userQuery.toLowerCase().includes(indicator));
+  if (hasClearDirection) confidence += 0.05;
+  
+  // Vague or ambiguous queries
+  const vagueIndicators = ['maybe', 'perhaps', 'try', 'might', 'could', 'somehow'];
+  const hasVagueLanguage = vagueIndicators.some(indicator => userQuery.toLowerCase().includes(indicator));
+  if (hasVagueLanguage) confidence -= 0.2;
+  
+  // Missing essential information
+  if (!userQuery.match(/https?:\/\//) && !userQuery.toLowerCase().includes('navigate')) {
+    confidence -= 0.1; // No clear destination
+  }
+  
+  // Valid steps increase confidence
+  if (hasValidSteps) confidence += 0.1;
+  
+  return Math.max(Math.min(confidence, 1.0), 0.1); // Clamp between 0.1 and 1.0
 }
 
 /**
@@ -496,4 +643,7 @@ export function formatPlanAsInstructions(plan: ExecutionPlan): string {
 
   return lines.join('\n');
 }
+
+// Export dynamic calculation functions
+export { calculateComplexityScore, calculateConfidence };
 

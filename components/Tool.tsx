@@ -94,11 +94,11 @@ const Tool = ({ toolPart, defaultOpen = false, className }: ToolProps) => {
   };
 
   return (
-    <div className={`mt-2 overflow-hidden rounded-md border border-gray-200 dark:border-gray-700 ${className || ''}`}>
+    <div className={`mt-2 overflow-hidden rounded-md border border-border/40 bg-accent/5 backdrop-blur-sm ${className || ''}`}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-gray-50 dark:bg-gray-800 h-auto w-full justify-between rounded-b-none px-3 py-1.5 font-normal hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center text-left"
+        className="bg-transparent h-auto w-full justify-between rounded-b-none px-3 py-1.5 font-normal hover:bg-muted/30 transition-colors flex items-center text-left"
         style={{ fontSize: '13px' }}
       >
         <div className="flex items-center gap-2">
@@ -117,21 +117,21 @@ const Tool = ({ toolPart, defaultOpen = false, className }: ToolProps) => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      
+
       {isOpen && (
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+        <div className="border-t border-border/30 bg-transparent">
           <div className="space-y-3 p-3">
             {input && Object.keys(input).length > 0 && (
               <div>
-                <h4 className="text-gray-600 dark:text-gray-400 mb-1.5 font-medium" style={{ fontSize: '11px' }}>
+                <h4 className="text-muted-foreground mb-1.5 font-medium" style={{ fontSize: '11px' }}>
                   Input
                 </h4>
-                <div className="bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 p-2 font-mono" style={{ fontSize: '11px' }}>
+                <div className="bg-muted/50 rounded border border-border/30 p-2 font-mono" style={{ fontSize: '11px' }}>
                   {Object.entries(input).map(([key, value]) => (
                     <div key={key} className="mb-1" style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <span className="text-gray-500 dark:text-gray-400">{key}:</span>{' '}
-                      <span className="text-gray-900 dark:text-gray-100">
-                        {typeof value === 'string' && value.length > 50 
+                      <span className="text-muted-foreground">{key}:</span>{' '}
+                      <span className="text-foreground">
+                        {typeof value === 'string' && value.length > 50
                           ? value.substring(0, 50) + '...'
                           : formatValue(value).substring(0, 100)
                         }
@@ -144,11 +144,11 @@ const Tool = ({ toolPart, defaultOpen = false, className }: ToolProps) => {
 
             {output && (
               <div>
-                <h4 className="text-gray-600 dark:text-gray-400 mb-1.5 font-medium" style={{ fontSize: '11px' }}>
+                <h4 className="text-muted-foreground mb-1.5 font-medium" style={{ fontSize: '11px' }}>
                   Output
                 </h4>
-                <div className="bg-gray-50 dark:bg-gray-800 max-h-40 overflow-auto rounded border border-gray-200 dark:border-gray-700 p-2 font-mono" style={{ fontSize: '11px' }}>
-                  <pre className="whitespace-pre-wrap text-gray-900 dark:text-gray-100">
+                <div className="bg-muted/50 max-h-40 overflow-auto rounded border border-border/30 p-2 font-mono" style={{ fontSize: '11px' }}>
+                  <pre className="whitespace-pre-wrap text-foreground">
                     {(() => {
                       const formatted = formatValue(output);
                       // Limit output display to 500 chars
@@ -161,21 +161,21 @@ const Tool = ({ toolPart, defaultOpen = false, className }: ToolProps) => {
 
             {state === 'output-error' && toolPart.errorText && (
               <div>
-                <h4 className="mb-2 text-sm font-medium text-red-500">Error</h4>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800 p-2 text-sm text-red-900 dark:text-red-200">
+                <h4 className="mb-2 text-sm font-medium text-red-600 dark:text-red-400">Error</h4>
+                <div className="bg-red-50/50 dark:bg-red-950/20 rounded border border-red-200/50 dark:border-red-800/30 p-2 text-sm text-red-900 dark:text-red-200">
                   {toolPart.errorText}
                 </div>
               </div>
             )}
 
             {state === 'input-streaming' && (
-              <div className="text-gray-600 dark:text-gray-400 text-sm">
+              <div className="text-muted-foreground text-sm">
                 Processing tool call...
               </div>
             )}
 
             {toolCallId && (
-              <div className="text-gray-500 dark:text-gray-400 border-t border-blue-200 dark:border-blue-800 pt-2 text-xs">
+              <div className="text-muted-foreground border-t border-border/20 pt-2 text-xs">
                 <span className="font-mono">Call ID: {toolCallId}</span>
               </div>
             )}

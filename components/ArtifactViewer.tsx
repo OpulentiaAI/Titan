@@ -479,7 +479,7 @@ const PureArtifactViewer: React.FC<ArtifactViewerProps> = ({
                   )}
                 </CardContent>
               </Card>
-            </div>
+            )}
           </TabsContent>
         )}
 
@@ -685,4 +685,3 @@ const PureArtifactViewer: React.FC<ArtifactViewerProps> = ({
 };
 
 export const ArtifactViewer = memo(PureArtifactViewer);
-

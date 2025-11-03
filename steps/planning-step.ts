@@ -6,6 +6,7 @@ import type { PlanningStepOutput, BrowserAutomationWorkflowInput } from '../sche
 import type { PlanningResult } from '../types';
 import { logEvent, logStepProgress } from '../lib/braintrust';
 import { planningDebug } from '../lib/debug-logger';
+import { calculateComplexityScore, calculateConfidence } from '../planner.js';
 
 /**
  * Planning Step - Mandatory GEPA-inspired planning evaluator
@@ -219,12 +220,12 @@ const duration = Date.now() - startTime;
            expectedOutcome: 'Page context retrieved',
          }],
          criticalPaths: [1],
-         estimatedSteps: 1,
-         complexityScore: 0.5,
-         potentialIssues: ['Planning generation failed, using fallback'],
-         optimizations: [],
-       },
-       confidence: 0.3,
+          estimatedSteps: 1,
+          complexityScore: calculateComplexityScore(input.userQuery),
+          potentialIssues: ['Planning generation failed, using fallback'],
+          optimizations: [],
+        },
+        confidence: calculateConfidence(input.userQuery, calculateComplexityScore(input.userQuery), false),
        planningBlock: `# Basic Execution Plan\n\n**Objective:** ${input.userQuery}\n\n**Approach:** Sequential execution with validation\n\n**Note:** Detailed planning failed, proceeding with adaptive execution.`,
        duration,
      };

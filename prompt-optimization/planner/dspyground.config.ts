@@ -72,9 +72,9 @@ Return a structured plan that a computer-use agent can execute precisely.`,
   }),
 
   // Preferences
-  selectedModel: 'google/gemini-2.5-flash-lite-preview-09-2025',
-  optimizationModel: 'google/gemini-2.5-flash-lite-preview-09-2025',
-  reflectionModel: 'google/gemini-2.5-pro',
+  selectedModel: 'https://build.nvidia.com/minimaxai/minimax-m2/modelcard',
+  optimizationModel: 'https://build.nvidia.com/minimaxai/minimax-m2/modelcard',
+  reflectionModel: 'https://openrouter.ai/minimax/minimax-m2:free',
   useStructuredOutput: true,
   optimizeStructuredOutput: true,
   batchSize: 3,

@@ -32,11 +32,34 @@ export interface ArborServerInfo {
   /** Base URL for API requests */
   baseUrl: string;
   /** Server status */
-  status: 'running' | 'starting' | 'stopped' | 'error';
+  status: 'running' | 'starting' | 'stopped' | 'error' | 'unhealthy';
   /** Server process ID */
   pid?: number;
   /** Configuration used */
   config: ArborServerConfig;
+  /** Server start time */
+  startTime?: number;
+}
+
+/**
+ * GEPA Candidate
+ * Represents a candidate solution in the Grounded Evolution with Pareto Allocation optimization
+ */
+export interface GEPACandidate {
+  /** Unique identifier for the candidate */
+  id: string;
+  /** The DSPy program configuration */
+  program: any;
+  /** Performance metrics */
+  metrics: Record<string, number>;
+  /** Optimization score (0-1, higher is better) */
+  score: number;
+  /** Dominance rank in Pareto frontier */
+  rank: number;
+  /** Creation timestamp */
+  createdAt: Date;
+  /** Last update timestamp */
+  updatedAt: Date;
 }
 
 /**

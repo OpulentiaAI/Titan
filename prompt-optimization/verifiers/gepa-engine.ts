@@ -286,8 +286,8 @@ export async function optimizeWithGEPA(
   const defaultConfig: GEPAConfig = {
     maxRollouts: 10,
     batchSize: 3,
-    reflectionModel: 'google/gemini-2.5-pro',
-    taskModel: 'google/gemini-2.5-flash',
+    reflectionModel: 'https://openrouter.ai/minimax/minimax-m2:free',
+    taskModel: 'https://build.nvidia.com/minimaxai/minimax-m2/modelcard',
     metrics: ['accuracy', 'efficiency', 'completeness'],
     paretoSize: 10,
     ...config

@@ -29,9 +29,10 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "flex flex-col gap-2 rounded-2xl px-4 py-3 text-foreground text-sm",
-      "group-[.is-user]:bg-card group-[.is-user]:text-foreground",
-      "group-[.is-assistant]:bg-background group-[.is-assistant]:text-foreground",
+      "flex flex-col gap-2 text-sm",
+      "group-[.is-user]:rounded-[24px] group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground group-[.is-user]:px-4 group-[.is-user]:py-3",
+      "group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0 group-[.is-assistant]:text-foreground",
+      "transition-all duration-200",
       className
     )}
     {...props}
@@ -52,11 +53,16 @@ export const MessageAvatar = ({
   ...props
 }: MessageAvatarProps) => (
   <Avatar
-    className={cn("size-8 ring-1 ring-3 ring-border", className)}
+    className={cn(
+      "size-8 ring-1 ring-3 ring-border transition-all duration-200",
+      "group-[.is-user]:opacity-0 group-[.is-user]:group-hover:opacity-100",
+      className
+    )}
     {...props}
   >
     <AvatarImage alt="" className="mt-0 mb-0" src={src} />
-    <AvatarFallback>{name?.slice(0, 2) || "ME"}</AvatarFallback>
+    <AvatarFallback className="text-xs">
+      {name?.slice(0, 2) || "ME"}
+    </AvatarFallback>
   </Avatar>
 );
-

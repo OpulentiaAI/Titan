@@ -1,16 +1,10 @@
-// Enhanced Chat Example with Complete Tool View Styling
-// Based on patterns from the reference implementation
-// Includes: streaming, reasoning, sources, branch navigation, file actions
-
+/*
+* Enhanced Chat Example with Complete Tool View Styling
+* Demonstrates streaming, reasoning, sources, branch navigation
+* Based on patterns from the reference implementation
+*/
 "use client";
-
-import {
-  ChainOfThought,
-  ChainOfThoughtContent,
-  ChainOfThoughtItem,
-  ChainOfThoughtStep,
-  ChainOfThoughtTrigger,
-} from "@/components/ui/chain-of-thought";
+import type { ToolUIPart } from "ai";
 import {
   AudioWaveformIcon,
   CameraIcon,
@@ -71,46 +65,40 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { ToolUIPart } from "ai";
 
-// Enhanced message types matching the reference implementation
-interface EnhancedMessageType {
+type MessageType = {
   key: string;
   from: "user" | "assistant";
-  sources?: Array<{
-    href: string;
-    title: string;
-  }>;
-  versions: Array<{
+  sources?: { href: string; title: string }[];
+  versions: {
     id: string;
     content: string;
-  }>;
+  }[];
   reasoning?: {
     content: string;
     duration: number;
   };
-  tools?: Array<{
+  tools?: {
     name: string;
     description: string;
     status: ToolUIPart["state"];
     parameters: Record<string, unknown>;
     result: string | undefined;
     error: string | undefined;
-  }>;
+  }[];
   avatar: string;
   name: string;
   isReasoningComplete?: boolean;
   isContentComplete?: boolean;
   isReasoningStreaming?: boolean;
-}
+};
 
 const models = [
   { id: "grok-3", name: "Grok-3" },
   { id: "grok-2-1212", name: "Grok-2-1212" },
 ];
 
-// Mock messages with enhanced metadata
-const mockMessages: EnhancedMessageType[] = [
+const mockMessages: MessageType[] = [
   {
     avatar: "",
     key: nanoid(),
@@ -152,7 +140,17 @@ const mockMessages: EnhancedMessageType[] = [
     {
       "title": "Rules of Hooks",
       "url": "https://react.dev/warnings/invalid-hook-call-warning",
-      "snippet": "Hooks must be called at the top level of your React function components or custom hooks."
+      "snippet": "Hooks must be called at the top level of your React function components or custom hooks. Don't call hooks inside loops, conditions, or nested functions."
+    },
+    {
+      "title": "useState Hook",
+      "url": "https://react.dev/reference/react/useState",
+      "snippet": "useState is a React Hook that lets you add state to your function components. It returns an array with two values: the current state and a function to update it."
+    },
+    {
+      "title": "useEffect Hook",
+      "url": "https://react.dev/reference/react/useEffect",
+      "snippet": "useEffect lets you synchronize a component with external systems. It runs after render and can be used to perform side effects like data fetching."
     }
   ]
 }`,
@@ -163,19 +161,32 @@ const mockMessages: EnhancedMessageType[] = [
       {
         id: nanoid(),
         content: `# React Hooks Best Practices
-React hooks are a powerful feature that let you use state and other React features without writing classes. Here are some key tips:
-
+React hooks are a powerful feature that let you use state and other React features without writing classes. Here are some tips for using them effectively:
 ## Rules of Hooks
 1. **Only call hooks at the top level** of your component or custom hooks
 2. **Don't call hooks inside loops, conditions, or nested functions**
-
 ## Common Hooks
 - **useState**: For local component state
 - **useEffect**: For side effects like data fetching
 - **useContext**: For consuming context
+- **useReducer**: For complex state logic
 - **useCallback**: For memoizing functions
 - **useMemo**: For memoizing values
-
+## Example of useState and useEffect
+\`\`\`jsx
+function ProfilePage({ userId }) {
+  const [user, setUser] = useState(null);
+  
+  useEffect(() => {
+    // This runs after render and when userId changes
+    fetchUser(userId).then(userData => {
+      setUser(userData);
+    });
+  }, [userId]);
+  
+  return user ? <Profile user={user} /> : <Loading />;
+}
+\`\`\`
 Would you like me to explain any specific hook in more detail?`,
       },
     ],
@@ -188,15 +199,18 @@ Would you like me to explain any specific hook in more detail?`,
     versions: [
       {
         id: nanoid(),
-        content: "Yes, could you explain useCallback and useMemo in more detail?",
+        content:
+          "Yes, could you explain useCallback and useMemo in more detail? When should I use one over the other?",
       },
       {
         id: nanoid(),
-        content: "I'm particularly interested in understanding when to use useCallback vs useMemo.",
+        content:
+          "I'm particularly interested in understanding the performance implications of useCallback and useMemo. Could you break down when each is most appropriate?",
       },
       {
         id: nanoid(),
-        content: "Thanks! Could you dive deeper into performance optimization with these hooks?",
+        content:
+          "Thanks for the overview! Could you dive deeper into the specific use cases where useCallback and useMemo make the biggest difference in React applications?",
       },
     ],
     name: "Hayden Bleasel",
@@ -206,35 +220,51 @@ Would you like me to explain any specific hook in more detail?`,
     key: nanoid(),
     from: "assistant",
     reasoning: {
-      content: `The user is asking for detailed explanation of useCallback and useMemo. I should provide clear distinctions between these hooks and their performance implications.`,
-      duration: 8,
+      content: `The user is asking for a detailed explanation of useCallback and useMemo. I should provide a clear and concise explanation of each hook's purpose and how they differ.
+      
+The useCallback hook is used to memoize functions to prevent unnecessary re-renders of child components that receive functions as props.
+The useMemo hook is used to memoize values to avoid expensive recalculations on every render.
+Both hooks help with performance optimization, but they serve different purposes.`,
+      duration: 10,
     },
     versions: [
       {
         id: nanoid(),
         content: `## useCallback vs useMemo
-Both hooks help with **performance optimization**, but serve different purposes:
-
+Both hooks help with **performance optimization**, but they serve _different purposes_:
 ### useCallback
-\`useCallback\` memoizes __functions__ to prevent unnecessary re-renders:
+\`useCallback\` memoizes __functions__ to prevent unnecessary re-renders of child components that receive functions as props.
 \`\`\`jsx
+// Without useCallback - a new function is created on every render
+const handleClick = () => {
+  console.log(count);
+};
+// With useCallback - the function is only recreated when dependencies change
 const handleClick = useCallback(() => {
   console.log(count);
 }, [count]);
 \`\`\`
-
 ### useMemo
-\`useMemo\` memoizes *values* to avoid expensive recalculations:
+\`useMemo\` memoizes *values* to avoid expensive recalculations on every render.
 \`\`\`jsx
+// Without useMemo - expensive calculation runs on every render
+const sortedList = expensiveSort(items);
+// With useMemo - calculation only runs when items change
 const sortedList = useMemo(() => expensiveSort(items), [items]);
 \`\`\`
-
 ### When to use which?
-- Use **useCallback** for event handlers passed to child components
-- Use **useMemo** for expensive calculations
-
+- Use **useCallback** when:
+  - Passing callbacks to optimized child components that rely on reference equality
+  - Working with event handlers that you pass to child components
+- Use **useMemo** when:
+  - You have computationally expensive calculations
+  - You want to avoid recreating objects that are used as dependencies for other hooks
 ### Performance Note
-Don't overuse these hooks - they have overhead. Only use when you have identified performance issues.`,
+Don't overuse these hooks! They come with their own overhead. Only use them when you have identified a genuine performance issue.
+### ~~Legacy Patterns~~
+Remember that these ~~outdated approaches~~ should be avoided:
+- ~~Class components for simple state~~ - Use \`useState\` instead
+- ~~Manual event listener cleanup~~ - Let \`useEffect\` handle it`,
       },
     ],
     name: "OpenAI",
@@ -242,13 +272,14 @@ Don't overuse these hooks - they have overhead. Only use when you have identifie
 ];
 
 const mockResponses = [
-  "That's a great question! Let me help you understand this concept better.",
-  "I'd be happy to explain this topic in detail. Here's what I recommend...",
-  "This is an interesting topic that comes up frequently. The solution involves...",
-  "Great choice of topic! This is something that many developers encounter.",
+  "That's a great question! Let me help you understand this concept better. The key thing to remember is that proper implementation requires careful consideration of the underlying principles and best practices in the field.",
+  "I'd be happy to explain this topic in detail. From my understanding, there are several important factors to consider when approaching this problem. Let me break it down step by step for you.",
+  "This is an interesting topic that comes up frequently. The solution typically involves understanding the core concepts and applying them in the right context. Here's what I recommend...",
+  "Great choice of topic! This is something that many developers encounter. The approach I'd suggest is to start with the fundamentals and then build up to more complex scenarios.",
+  "That's definitely worth exploring. From what I can see, the best way to handle this is to consider both the theoretical aspects and practical implementation details.",
 ];
 
-export function EnhancedChainOfThoughtChatExample() {
+export const EnhancedChatExample = () => {
   const [model, setModel] = useState<string>(models[0].id);
   const [text, setText] = useState<string>("");
   const [useWebSearch, setUseWebSearch] = useState<boolean>(false);
@@ -256,9 +287,11 @@ export function EnhancedChainOfThoughtChatExample() {
   const [status, setStatus] = useState<
     "submitted" | "streaming" | "ready" | "error"
   >("ready");
-  const [messages, setMessages] = useState<EnhancedMessageType[]>([]);
+  const [messages, setMessages] = useState<MessageType[]>([]);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
+    null
+  );
 
-  // Streaming utilities
   const streamReasoning = async (
     messageKey: string,
     versionId: string,
@@ -285,6 +318,7 @@ export function EnhancedChainOfThoughtChatExample() {
         setTimeout(resolve, Math.random() * 30 + 20)
       );
     }
+    // Mark reasoning as complete
     setMessages((prev) =>
       prev.map((msg) => {
         if (msg.key === messageKey) {
@@ -325,6 +359,7 @@ export function EnhancedChainOfThoughtChatExample() {
         setTimeout(resolve, Math.random() * 50 + 25)
       );
     }
+    // Mark content as complete
     setMessages((prev) =>
       prev.map((msg) => {
         if (msg.key === messageKey) {
@@ -343,22 +378,27 @@ export function EnhancedChainOfThoughtChatExample() {
       reasoning?: { content: string; duration: number }
     ) => {
       setStatus("streaming");
+      setStreamingMessageId(versionId);
+      // First stream the reasoning if it exists
       if (reasoning) {
         await streamReasoning(messageKey, versionId, reasoning.content);
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500)); // Pause between reasoning and content
       }
+      // Then stream the content
       await streamContent(messageKey, versionId, content);
       setStatus("ready");
+      setStreamingMessageId(null);
     },
     []
   );
 
   const streamMessage = useCallback(
-    async (message: EnhancedMessageType) => {
+    async (message: MessageType) => {
       if (message.from === "user") {
         setMessages((prev) => [...prev, message]);
         return;
       }
+      // Add empty assistant message with reasoning structure
       const newMessage = {
         ...message,
         versions: message.versions.map((v) => ({ ...v, content: "" })),
@@ -370,8 +410,10 @@ export function EnhancedChainOfThoughtChatExample() {
         isReasoningStreaming: !!message.reasoning,
       };
       setMessages((prev) => [...prev, newMessage]);
+      // Get the first version for streaming
       const firstVersion = message.versions[0];
       if (!firstVersion) return;
+      // Stream the response
       await streamResponse(
         newMessage.key,
         firstVersion.id,
@@ -384,7 +426,7 @@ export function EnhancedChainOfThoughtChatExample() {
 
   const addUserMessage = useCallback(
     (content: string) => {
-      const userMessage: EnhancedMessageType = {
+      const userMessage: MessageType = {
         key: `user-${Date.now()}`,
         from: "user",
         versions: [
@@ -402,15 +444,16 @@ export function EnhancedChainOfThoughtChatExample() {
         const assistantMessageId = `version-${Date.now()}`;
         const randomResponse =
           mockResponses[Math.floor(Math.random() * mockResponses.length)];
+        // Create reasoning for some responses
         const shouldHaveReasoning = Math.random() > 0.5;
         const reasoning = shouldHaveReasoning
           ? {
               content:
-                "Let me think about this question carefully. I need to provide a comprehensive response.",
+                "Let me think about this question carefully. I need to provide a comprehensive and helpful response that addresses the user's needs while being clear and concise.",
               duration: 3,
             }
           : undefined;
-        const assistantMessage: EnhancedMessageType = {
+        const assistantMessage: MessageType = {
           key: assistantMessageKey,
           from: "assistant",
           versions: [
@@ -439,6 +482,7 @@ export function EnhancedChainOfThoughtChatExample() {
   );
 
   useEffect(() => {
+    // Reset state on mount to ensure fresh component
     setMessages([]);
     const processMessages = async () => {
       for (let i = 0; i < mockMessages.length; i++) {
@@ -448,9 +492,11 @@ export function EnhancedChainOfThoughtChatExample() {
         }
       }
     };
+    // Small delay to ensure state is reset before starting
     const timer = setTimeout(() => {
       processMessages();
     }, 100);
+    // Cleanup function to cancel any ongoing operations
     return () => {
       clearTimeout(timer);
       setMessages([]);
@@ -459,9 +505,12 @@ export function EnhancedChainOfThoughtChatExample() {
 
   const handleSubmit = (message: PromptInputMessage) => {
     const hasText = Boolean(message.text);
-    if (!hasText) return;
+    const hasAttachments = Boolean(message.files?.length);
+    if (!(hasText || hasAttachments)) {
+      return;
+    }
     setStatus("submitted");
-    addUserMessage(message.text);
+    addUserMessage(message.text || "Sent with attachments");
     setText("");
   };
 
@@ -469,6 +518,11 @@ export function EnhancedChainOfThoughtChatExample() {
     toast.success("File action", {
       description: action,
     });
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setStatus("submitted");
+    addUserMessage(suggestion);
   };
 
   return (
@@ -658,55 +712,6 @@ export function EnhancedChainOfThoughtChatExample() {
       </div>
     </div>
   );
-}
+};
 
-// Browser Automation Reasoning Example
-export function BrowserAutomationReasoningExample() {
-  return (
-    <div className="w-full max-w-3xl">
-      <ChainOfThought>
-        <ChainOfThoughtStep defaultOpen>
-          <ChainOfThoughtTrigger leftIcon={<Search className="size-4" />}>
-            Planning: Breaking down the browser automation task
-          </ChainOfThoughtTrigger>
-          <ChainOfThoughtContent>
-            <ChainOfThoughtItem>
-              User wants to navigate to GitHub trending page and extract top 5 projects
-            </ChainOfThoughtItem>
-            <ChainOfThoughtItem>
-              Required steps: Navigate → Wait for load → Scroll to ensure content → Extract data
-            </ChainOfThoughtItem>
-          </ChainOfThoughtContent>
-        </ChainOfThoughtStep>
-
-        <ChainOfThoughtStep>
-          <ChainOfThoughtTrigger leftIcon={<LightbulbIcon className="size-4" />}>
-            Analysis: Identifying potential challenges
-          </ChainOfThoughtTrigger>
-          <ChainOfThoughtContent>
-            <ChainOfThoughtItem>
-              GitHub's trending page uses dynamic React rendering - need to wait for content
-            </ChainOfThoughtItem>
-            <ChainOfThoughtItem>
-              Project cards may load lazily on scroll - implement scroll strategy
-            </ChainOfThoughtItem>
-          </ChainOfThoughtContent>
-        </ChainOfThoughtStep>
-
-        <ChainOfThoughtStep>
-          <ChainOfThoughtTrigger leftIcon={<Zap className="size-4" />}>
-            Execution: Performing browser actions
-          </ChainOfThoughtTrigger>
-          <ChainOfThoughtContent>
-            <ChainOfThoughtItem>
-              ✅ Navigation successful (1.2s)
-            </ChainOfThoughtItem>
-            <ChainOfThoughtItem>
-              ✅ All 5 projects extracted with complete metadata
-            </ChainOfThoughtItem>
-          </ChainOfThoughtContent>
-        </ChainOfThoughtStep>
-      </ChainOfThought>
-    </div>
-  );
-}
+export default EnhancedChatExample;

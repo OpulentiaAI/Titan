@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Streamdown } from 'streamdown';
 import './app.css'; // Import GT America fonts and OKLCH theme
-import type { Settings, MCPClient, Message } from './types';
+import type { Settings, MCPClient, Message, PageContext } from './types';
 import { GeminiResponseSchema } from './types';
 import { stepCountIs } from 'ai';
 import { initializeBraintrust } from './lib/braintrust';
@@ -13,11 +13,33 @@ import { EnhancedStepDisplay } from './components/EnhancedStepDisplay';
 import { ToolExecutionDisplay } from './components/ToolExecutionDisplay';
 import { PlanningDisplay } from './components/PlanningDisplay';
 import { Tool } from './components/ui/tool';
-import type { ToolPart } from './components/ui/tool';
 import { AgentComposerIntegration } from './components/agents-ui/agent-composer-integration';
 import { ReasoningChatForm } from './components/reasoning-chat-form';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from './components/ai-elements/reasoning';
 import { Response } from './components/ai-elements/response';
+import { cn } from './lib/utils';
+// Enhanced chat elements with improved styling
+import { 
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from './components/ai-elements/conversation';
+import { 
+  Message, 
+  MessageContent 
+} from './components/ai-elements/message';
+import {
+  PromptInput,
+  PromptInputTextarea,
+  PromptInputFooter,
+  PromptInputTools,
+  PromptInputButton,
+  PromptInputModelSelect,
+  PromptInputModelSelectContent,
+  PromptInputModelSelectItem,
+  PromptInputModelSelectTrigger,
+  PromptInputModelSelectValue,
+} from './components/ai-elements/prompt-input';
 import { 
   EnhancedPlanDisplay, 
   EnhancedToolCallDisplay, 
@@ -35,7 +57,7 @@ import {
 import { WorkflowQueue } from './components/ui/workflow-queue';
 import { WorkflowTaskList } from './components/ui/workflow-task-list';
 import { CodeBlock, CodeBlockCopyButton } from './components/ui/code-block';
-import { cn } from './lib/utils';
+import { PageContext } from './types';
 
 // Custom component to handle link clicks - opens in new tab
 const LinkComponent = ({ href, children }: { href?: string; children?: React.ReactNode }) => {
@@ -94,7 +116,6 @@ function ChatSidebar() {
   const [browserToolsEnabled, setBrowserToolsEnabled] = useState(false);
   const [showBrowserToolsWarning, setShowBrowserToolsWarning] = useState(false);
   const [isUserScrolled, setIsUserScrolled] = useState(false);
-  const [toolExecutions, setToolExecutions] = useState<ToolPart[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const mcpClientRef = useRef<MCPClient | null>(null);
   const mcpToolsRef = useRef<Record<string, unknown> | null>(null);
@@ -103,182 +124,274 @@ function ChatSidebar() {
   const mcpInitPromiseRef = useRef<Promise<void> | null>(null);
   const composioSessionRef = useRef<{ expiresAt: number } | null>(null);
 
-  // Helper to add tool execution tracking
-  const trackToolExecution = (toolName: string, params: any, state: ToolPart['state'], output?: any, error?: string) => {
-    const toolPart: ToolPart = {
-      type: toolName,
-      state,
-      input: params,
-      output,
-      errorText: error,
-      toolCallId: `tool-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    };
-    
-    setToolExecutions(prev => {
-      // Update existing tool or add new one
-      const existingIndex = prev.findIndex(t => 
-        t.type === toolName && 
-        JSON.stringify(t.input) === JSON.stringify(params)
-      );
-      
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = toolPart;
-        return updated;
-      }
-      
-      return [...prev, toolPart];
-    });
-  };
-
   const executeTool = async (toolName: string, parameters: any, retryCount = 0): Promise<any> => {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 1500; // 1.5 seconds to allow page to load
     
     // Different timeouts for different tool types
     const TOOL_TIMEOUTS: Record<string, number> = {
-      screenshot: 10000,    // Screenshots should be fast
-      type: 15000,         // Typing might need more time if DOM is slow
-      click: 10000,        // Clicks are usually fast
-      navigate: 20000,     // Navigation needs time for page load
-      getPageContext: 10000,
-      scroll: 8000,
-      pressKey: 5000,
-      keyCombo: 5000,
+      screenshot: 10000,
+      navigate: 15000,
+      click: 8000,
+      type: 6000,
+      scroll: 4000,
+      getPageContext: 5000,
+      getBrowserHistory: 8000,
+      wait: 30000,
+      pressKey: 3000,
+      keyCombo: 3000,
+      dragDrop: 10000,
     };
+
+    const TOOL_TIMEOUT = TOOL_TIMEOUTS[toolName] || 8000;
+    let timeoutId: NodeJS.Timeout;
     
-    const TOOL_TIMEOUT = TOOL_TIMEOUTS[toolName] || 30000; // Default 30s
-    
-    // Track tool execution start
-    trackToolExecution(toolName, parameters, 'input-streaming');
-    
-    return new Promise((resolve, reject) => {
-      let timeoutId: NodeJS.Timeout | null = null;
-      let responded = false;
+    try {
+      // Track tool execution start
+      const executionStartTime = Date.now();
       
-      const handleResponse = (response: any) => {
-        // Prevent double-response
-        if (responded) {
-          console.warn(`⚠️ [executeTool] Duplicate response for ${toolName} (ignoring)`);
-          return;
-        }
-        responded = true;
-        
-        // Clear timeout if response received
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-        
-        const errorMsg = response?.error || chrome.runtime.lastError?.message || '';
-        const isConnectionError = errorMsg.includes('Receiving end does not exist') || 
-                                 errorMsg.includes('Could not establish connection');
-        
-        if (isConnectionError && retryCount < MAX_RETRIES) {
-          console.log(`🔄 [executeTool] Connection error on ${toolName}, retrying... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      // Create a promise that rejects on timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT}ms`));
+        }, TOOL_TIMEOUT);
+      });
+
+      // Create a promise that resolves/rejects based on the actual tool execution
+      const toolPromise = new Promise<any>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'EXECUTE_TOOL', toolName, parameters }, (response) => {
+          const errorMsg = response?.error || chrome.runtime.lastError?.message || '';
+          const isConnectionError = errorMsg.includes('Receiving end does not exist') || 
+                                   errorMsg.includes('Could not establish connection');
           
-          setTimeout(async () => {
-            try {
-              const result = await executeTool(toolName, parameters, retryCount + 1);
-              resolve(result);
-            } catch (error) {
-              reject(error);
-            }
-          }, RETRY_DELAY);
-        } else {
-          // Track completion or error
-          if (response?.error || errorMsg) {
-            trackToolExecution(toolName, parameters, 'output-error', response, errorMsg);
+          if (isConnectionError && retryCount < MAX_RETRIES) {
+            console.log(`🔄 [executeTool] Connection error on ${toolName}, retrying... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+            
+            setTimeout(async () => {
+              try {
+                const result = await executeTool(toolName, parameters, retryCount + 1);
+                resolve(result);
+              } catch (error) {
+                reject(error);
+              }
+            }, RETRY_DELAY);
+          } else if (response?.error) {
+            reject(new Error(response.error));
           } else {
-            trackToolExecution(toolName, parameters, 'output-available', response);
+            resolve(response);
           }
-          
-          // Return response as-is (could be success or error)
-          resolve(response);
-        }
-      };
+        });
+      });
+
+      // Race between tool execution and timeout
+      const result = await Promise.race([toolPromise, timeoutPromise]) as any;
       
-      // Set timeout to prevent hanging forever
-      timeoutId = setTimeout(() => {
-        if (!responded) {
-          responded = true;
-          const timeoutError = `Tool ${toolName} timed out after ${TOOL_TIMEOUT}ms - content script may be unresponsive`;
-          console.error(`❌ [executeTool] ${timeoutError}`);
-          trackToolExecution(toolName, parameters, 'output-error', { error: timeoutError }, timeoutError);
-          
-          // Return error instead of rejecting to allow workflow to continue
-          reject(new Error(timeoutError));
-        }
-      }, TOOL_TIMEOUT);
+      // Clear timeout if successful
+      clearTimeout(timeoutId);
       
-      if (toolName === 'screenshot') {
-        chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, handleResponse);
-      } else if (toolName === 'click') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'click',
-          selector: parameters.selector,
-          coordinates: parameters.x !== undefined ? { x: parameters.x, y: parameters.y } : undefined
-        }, handleResponse);
-      } else if (toolName === 'type') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'fill',
-          target: parameters.selector,
-          value: parameters.text
-        }, handleResponse);
-      } else if (toolName === 'scroll') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'scroll',
-          direction: parameters.direction,
-          target: parameters.selector,
-          amount: parameters.amount
-        }, handleResponse);
-      } else if (toolName === 'getPageContext') {
-        chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' }, handleResponse);
-      } else if (toolName === 'navigate') {
-        chrome.runtime.sendMessage({ type: 'NAVIGATE', url: parameters.url }, handleResponse);
-      } else if (toolName === 'getBrowserHistory') {
-        chrome.runtime.sendMessage({ 
-          type: 'GET_HISTORY',
-          query: parameters.query,
-          maxResults: parameters.maxResults
-        }, handleResponse);
-      } else if (toolName === 'pressKey') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'press_key',
-          key: parameters.key
-        }, handleResponse);
-      } else if (toolName === 'clearInput') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'clear_input'
-        }, handleResponse);
-      } else if (toolName === 'keyCombo') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'key_combination',
-          keys: parameters.keys
-        }, handleResponse);
-      } else if (toolName === 'hover') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'hover',
-          coordinates: { x: parameters.x, y: parameters.y }
-        }, handleResponse);
-      } else if (toolName === 'dragDrop') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'drag_drop',
-          coordinates: { x: parameters.x, y: parameters.y },
-          destination: { x: parameters.destination_x, y: parameters.destination_y }
-        }, handleResponse);
-      } else {
-        reject(new Error(`Unknown tool: ${toolName}`));
+      // Track execution duration and success
+      const executionDuration = Date.now() - executionStartTime;
+      trackToolExecution(toolName, parameters, 'output-available', result);
+      
+      console.log(`✅ [executeTool] ${toolName} completed in ${executionDuration}ms`);
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown tool execution error';
+      const executionDuration = Date.now() - executionStartTime;
+      
+      console.error(`❌ [executeTool] ${toolName} failed after ${executionDuration}ms:`, errorMessage);
+      
+      // Retry logic for transient failures
+      const transientErrors = [
+        'timeout',
+        'network error',
+        'connection lost',
+        'receiving end does not exist'
+      ];
+      
+      const isTransientError = transientErrors.some(errorType => 
+        errorMessage.toLowerCase().includes(errorType)
+      );
+      
+      if (isTransientError && retryCount < MAX_RETRIES) {
+        console.log(`🔄 [executeTool] Retrying ${toolName} due to transient error... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        
+        setTimeout(async () => {
+          try {
+            const result = await executeTool(toolName, parameters, retryCount + 1);
+            return result;
+          } catch (retryError) {
+            // Track final failure
+            trackToolExecution(toolName, parameters, 'output-error', undefined, errorMessage);
+            throw retryError;
+          }
+        }, RETRY_DELAY);
+        
+        return; // Don't throw here, let the retry handle it
       }
+      
+      // Final failure - track it
+      trackToolExecution(toolName, parameters, 'output-error', undefined, errorMessage);
+      throw error;
+    }
+  };
+
+  /**
+   * Enhanced tool tracking with metadata and deterministic structure
+   */
+  const trackToolExecution = (
+    toolName: string, 
+    input: any, 
+    state: 'input-available' | 'output-available' | 'output-error',
+    output?: any,
+    errorText?: string
+  ) => {
+    const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const execution = {
+      toolCallId: executionId,
+      toolName,
+      state,
+      input,
+      output,
+      errorText,
+      timestamp: Date.now(),
+      duration: Date.now() - (input?._startTime || Date.now()),
+      metadata: {
+        retryCount: input?._retryCount || 0,
+        browserTabId: browserTabId,
+        url: currentUrl,
+        ...input?._metadata
+      }
+    };
+
+    setMessages(prevMessages => {
+      const lastMessageIndex = prevMessages.length - 1;
+      if (lastMessageIndex < 0) return prevMessages;
+
+      const lastMessage = prevMessages[lastMessageIndex];
+      if (lastMessage.role !== 'assistant') return prevMessages;
+
+      const updatedToolExecutions = [...(lastMessage.toolExecutions || [])];
+      
+      // Remove any existing execution with the same ID
+      const existingIndex = updatedToolExecutions.findIndex(exec => exec.toolCallId === executionId);
+      if (existingIndex >= 0) {
+        updatedToolExecutions[existingIndex] = execution;
+      } else {
+        updatedToolExecutions.push(execution);
+      }
+
+      return [
+        ...prevMessages.slice(0, -1),
+        {
+          ...lastMessage,
+          toolExecutions: updatedToolExecutions,
+          metadata: {
+            ...lastMessage.metadata,
+            lastToolUpdate: Date.now()
+          }
+        }
+      ];
     });
+
+    console.log(`🔧 [trackToolExecution] ${toolName} (${state}):`, {
+      executionId,
+      duration: execution.duration,
+      hasInput: !!input,
+      hasOutput: !!output,
+      hasError: !!errorText
+    });
+  };
+
+  /**
+   * Enhanced tool execution with comprehensive error handling and validation
+   */
+  const executeToolWithValidation = async (toolName: string, parameters: any): Promise<any> => {
+    const startTime = Date.now();
+    
+    try {
+      // Add execution metadata for tracking
+      const enhancedParameters = {
+        ...parameters,
+        _startTime: startTime,
+        _toolName: toolName,
+        _retryCount: 0
+      };
+
+      const result = await executeTool(toolName, enhancedParameters);
+      
+      // Validate result structure
+      if (!result || typeof result !== 'object') {
+        throw new Error(`Tool ${toolName} returned invalid result structure`);
+      }
+
+      // Log successful execution
+      const duration = Date.now() - startTime;
+      console.log(`✅ [executeToolWithValidation] ${toolName} completed in ${duration}ms`);
+      
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`❌ [executeToolWithValidation] ${toolName} failed after ${duration}ms:`, error);
+      throw error;
+    }
+  };
+
+  /**
+   * Create deterministic tool result with consistent structure
+   */
+  const createDeterministicToolResult = (
+    toolName: string,
+    success: boolean,
+    data?: any,
+    error?: string,
+    metadata: Record<string, any> = {}
+  ) => {
+    return {
+      success,
+      data,
+      error,
+      timestamp: Date.now(),
+      toolName,
+      toolCallId: `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      duration: Date.now() - (metadata.startTime || Date.now()),
+      metadata: {
+        ...metadata,
+        deterministic: true,
+        version: '1.0'
+      }
+    };
+  };
+
+  /**
+   * Enhanced tool execution with preliminary results and streaming
+   */
+  const executeToolWithStreaming = async function* (toolName: string, parameters: any) {
+    const startTime = Date.now();
+    
+    try {
+      yield { type: 'status', stage: 'preparing', message: `Preparing ${toolName}...` };
+      
+      // Add execution metadata
+      const enhancedParameters = {
+        ...parameters,
+        _startTime: startTime,
+        _toolName: toolName,
+        streaming: true
+      };
+
+      yield { type: 'status', stage: 'executing', message: `Executing ${toolName}...` };
+      
+      // Execute the tool
+      const result = await executeToolWithValidation(toolName, enhancedParameters);
+      
+      yield { type: 'status', stage: 'completed', message: `${toolName} completed successfully` };
+      yield { type: 'result', data: result, duration: Date.now() - startTime };
+      
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      yield { type: 'error', error: error instanceof Error ? error.message : 'Unknown error', duration };
+    }
   };
 
   const loadSettings = async (forceRefresh = false) => {
@@ -475,7 +588,6 @@ function ChatSidebar() {
   const newChat = async () => {
     // Clear messages and tool executions
     setMessages([]);
-    setToolExecutions([]);
     setShowBrowserToolsWarning(false);
     
     // Force close and clear ALL cached state
@@ -502,7 +614,7 @@ function ChatSidebar() {
         
         chrome.storage.local.set({ 
           composioSessionId: toolRouterSession.sessionId,
-          composioChatMcpUrl: toolRouterSession.chatMcpUrl || toolRouterSession.chatSessionMcpUrl,
+          composioChatMcpUrl: toolRouterSession.chatSessionMcpUrl || toolRouterSession.chatMcpUrl,
           composioToolRouterMcpUrl: toolRouterSession.toolRouterMcpUrl,
         });
         
@@ -1697,6 +1809,28 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         const gatewayClient = createGateway({ apiKey: settings.apiKey });
         model = gatewayClient(settings.model);
         console.log('✅ [streamWithAISDK] AI Gateway client created for model:', settings.model);
+      } else if (settings!.provider === 'openrouter') {
+        if (!settings?.apiKey) {
+          throw new Error('OpenRouter API key is required. Please set it in settings.');
+        }
+        console.log('🔑 [streamWithAISDK] Creating OpenRouter client with key:', settings.apiKey.substring(0, 10) + '...');
+        const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+        const openRouterClient = createOpenRouter({ apiKey: settings.apiKey });
+        model = openRouterClient(settings.model);
+        console.log('✅ [streamWithAISDK] OpenRouter client created for model:', settings.model);
+      } else if (settings!.provider === 'nim') {
+        if (!settings?.apiKey) {
+          throw new Error('NVIDIA NIM API key is required. Please set it in settings.');
+        }
+        console.log('🔑 [streamWithAISDK] Creating NVIDIA NIM client with key:', settings.apiKey.substring(0, 10) + '...');
+        const { createOpenAI } = await import('@ai-sdk/openai');
+        // NIM uses OpenAI-compatible API
+        const nimClient = createOpenAI({
+          apiKey: settings.apiKey,
+          baseURL: 'https://integrate.api.nvidia.com/v1',
+        });
+        model = nimClient(settings.model);
+        console.log('✅ [streamWithAISDK] NVIDIA NIM client created for model:', settings.model);
       } else {
         if (!settings?.apiKey) {
           throw new Error('Google API key is required. Please set it in settings.');
@@ -1985,307 +2119,303 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
 
   if (showSettings && !settings) {
     return (
-      <div className="chat-container">
-        <div className="welcome-message" style={{ padding: '40px 20px' }}>
-          <h2>Welcome to Opulent</h2>
-          <p style={{ marginBottom: '20px' }}>Please configure your AI provider to get started.</p>
-          <button
-            onClick={openSettings}
-            className="settings-icon-btn"
-            style={{ width: 'auto', padding: '12px 24px' }}
-          >
-            Open Settings
-          </button>
+      <div className="relative flex h-screen w-full flex-col overflow-hidden bg-secondary">
+        <div className="flex h-full w-full flex-col">
+          <div className="chat-header border-b bg-background/95">
+            <div style={{ flex: 1 }}>
+              <h1 className="text-lg font-semibold text-foreground">Opulent</h1>
+              <p style={{ marginBottom: '20px' }}>Please configure your AI provider to get started.</p>
+              <button
+                onClick={openSettings}
+                className="settings-icon-btn"
+                style={{ width: 'auto', padding: '12px 24px' }}
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="chat-container dark-mode">
-      <div className="chat-header">
-        <div style={{ flex: 1 }}>
-          <h1>Opulent</h1>
-          <p>
-            {(settings?.provider
-              ? settings.provider === 'gateway' ? 'AI Gateway' : settings.provider.charAt(0).toUpperCase() + settings.provider.slice(1)
-              : 'Unknown')} · {browserToolsEnabled ? getComputerUseLabel() : (settings?.model || 'No model')}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button
-            onClick={toggleBrowserTools}
-            className={`settings-icon-btn ${browserToolsEnabled ? 'active' : ''}`}
-            title={browserToolsEnabled ? 'Disable Browser Tools' : 'Enable Browser Tools'}
-            disabled={isLoading}
-          >
-            {browserToolsEnabled ? '◉' : '○'}
-          </button>
-          <button
-            onClick={newChat}
-            className="settings-icon-btn"
-            title="New Chat"
-            disabled={isLoading}
-          >
-            +
-          </button>
-          <button
-            onClick={openSettings}
-            className="settings-icon-btn"
-            title="Settings"
-          >
-            ⋯
-          </button>
-        </div>
-      </div>
-
-      {showBrowserToolsWarning && (
-        <div style={{
-          padding: '12px 16px',
-          background: '#fef3c7',
-          borderBottom: '1px solid #fbbf24',
-          fontSize: '13px',
-          color: '#92400e',
-        }}>
-          <strong>Browser Tools Enabled!</strong> Now using {getComputerUseLabel()}.
-          {!settings?.apiKey && (
-            <span> Please <a href="#" onClick={(e) => { e.preventDefault(); openSettings(); }} style={{ color: '#2563eb', textDecoration: 'underline' }}>set your API key</a> in settings.</span>
-          )}
-        </div>
-      )}
-
-      <div className="messages-container" ref={messagesContainerRef}>
-        {messages.length === 0 ? (
-          <div className="welcome-message">
-            <h2>How can I help you today?</h2>
-            <p>I'm Opulent, your AI assistant. I can help you browse the web, analyze content, and perform various tasks.</p>
+    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-secondary">
+      <div className="flex h-full w-full flex-col chat-interface">
+        <div className="chat-header border-b bg-background/95 backdrop-blur-sm">
+          <div style={{ flex: 1 }}>
+            <h1 className="text-lg font-semibold text-foreground">Opulent</h1>
+            <p className="text-sm text-muted-foreground">
+              {(settings?.provider
+                ? settings.provider === 'gateway' ? 'AI Gateway' : settings.provider.charAt(0).toUpperCase() + settings.provider.slice(1)
+                : 'Unknown')} · {browserToolsEnabled ? getComputerUseLabel() : (settings?.model || 'No model')}
+            </p>
           </div>
-        ) : (
-          <>
-            {/* Display messages in chronological order (like a normal chat) */}
-            {messages.map((message, index) => {
-              // Filter out intermediate reasoning updates - they clutter the UI
-              if (message.role === 'assistant' && message.content.includes('💭 **Reasoning Update**')) {
-                return null;
-              }
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              onClick={toggleBrowserTools}
+              className={`settings-icon-btn transition-all duration-200 hover:scale-105 ${browserToolsEnabled ? 'active' : ''}`}
+              title={browserToolsEnabled ? 'Disable Browser Tools' : 'Enable Browser Tools'}
+              disabled={isLoading}
+            >
+              {browserToolsEnabled ? '◉' : '○'}
+            </button>
+            <button
+              onClick={newChat}
+              className="settings-icon-btn transition-all duration-200 hover:scale-105"
+              title="New Chat"
+              disabled={isLoading}
+            >
+              +
+            </button>
+            <button
+              onClick={openSettings}
+              className="settings-icon-btn transition-all duration-200 hover:scale-105"
+              title="Settings"
+            >
+              ⋯
+            </button>
+          </div>
+        </div>
 
-              const isStepMessage = message.role === 'assistant' && (
-                message.content.includes('**Step') || 
-                message.content.includes('Planning Phase') ||
-                message.content.includes('Planning Complete')
-              );
-
-              return (
-                <div
-                  key={message.id}
-                  className={`mx-auto w-full max-w-[44rem] animate-in fade-in slide-in-from-bottom-1 duration-200 py-4 ${
-                    message.role === 'user' ? 'grid grid-cols-[minmax(72px,1fr)_auto] gap-y-2 px-2' : 'px-2'
-                  }`}
-                  style={{
-                    animation: 'fadeInUp 0.4s ease-out forwards',
-                  }}
-                >
-                  <div className={`${
-                    message.role === 'user' 
-                      ? 'col-start-2 rounded-3xl bg-muted px-5 py-2.5 break-words text-foreground max-w-[85%] ml-auto'
-                      : 'leading-7 break-words text-foreground w-full'
-                  }`}>
-                    {message.content ? (
-                      <>
-                        {/* Show content based on message type */}
-                        {message.role === 'assistant' ? (
-                          <>
-                            {/* Display tool executions using enhanced structured component */}
-                            {message.toolExecutions && message.toolExecutions.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <EnhancedToolCallDisplay 
-                                  toolParts={message.toolExecutions.map(exec => ({
-                                    type: exec.toolName,
-                                    state: exec.state,
-                                    input: exec.input,
-                                    output: exec.output,
-                                    toolCallId: exec.toolCallId,
-                                    errorText: exec.errorText,
-                                  }))}
-                                />
-                              </div>
-                            )}
-                            
-                            {/* Display workflow task list (mastra-hitl inspired clean UI) */}
-                            {message.workflowTasks && message.workflowTasks.length > 0 && (
-                              <WorkflowTaskList
-                                  tasks={message.workflowTasks}
-                                autoExpand={index === messages.length - 1}
-                                emphasizedTasks={new Set(
-                                  message.workflowTasks
-                                    .filter(t => t.status === 'new' || t.status === 'in_progress')
-                                    .map(t => t.id)
-                                )}
-                                />
-                            )}
-                            
-                            {/* Display reasoning tokens (OpenRouter/Atlas chain-of-thought) - AI Elements primitive */}
-                            {message.reasoning && message.reasoning.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <Reasoning 
-                                  isStreaming={isLoading && index === messages.length - 1}
-                                  defaultOpen={false}
-                                  className="rounded-lg border border-border bg-card"
-                                >
-                                  <ReasoningTrigger />
-                                  <ReasoningContent className="space-y-2 pt-3">
-                                    {message.reasoning.map((thought, idx) => (
-                                      <div 
-                                        key={idx}
-                                        className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground"
-                                      >
-                                        <div className="font-medium text-foreground mb-1">
-                                          Thought {idx + 1}
-                                        </div>
-                                        <div className="whitespace-pre-wrap">
-                                          {thought}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </ReasoningContent>
-                                </Reasoning>
-                              </div>
-                            )}
-
-                            {/* Display planning using enhanced structured component */}
-                            {message.planning && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <EnhancedPlanDisplay 
-                                  plan={message.planning.plan}
-                                  confidence={message.planning.confidence}
-                                  defaultOpen={false}
-                                />
-                              </div>
-                            )}
-                            
-                            {/* Display page context artifact */}
-                            {message.pageContext && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <PageContextArtifact pageContext={message.pageContext} />
-                              </div>
-                            )}
-                            
-                            {/* Display summarization artifact */}
-                            {message.summarization && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <SummarizationArtifact summarization={message.summarization} />
-                              </div>
-                            )}
-                            
-                            {/* Display error analysis artifact */}
-                            {message.errorAnalysis && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <ErrorAnalysisArtifact errorAnalysis={message.errorAnalysis} />
-                              </div>
-                            )}
-                            
-                            {/* Display execution trajectory artifact */}
-                            {message.executionTrajectory && message.executionTrajectory.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <ExecutionTrajectoryArtifact trajectory={message.executionTrajectory} />
-                              </div>
-                            )}
-                            
-                            {/* Display workflow metadata artifact */}
-                            {message.workflowMetadata && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <WorkflowMetadataArtifact 
-                                  metadata={message.workflowMetadata}
-                                  totalDuration={message.workflowMetadata.totalDuration}
-                                  finalUrl={message.workflowMetadata.finalUrl}
-                                />
-                              </div>
-                            )}
-                            
-                            {/* Display step visualization using prompt-kit Steps component */}
-                            {isStepMessage && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <EnhancedStepDisplay messages={[message]} />
-                              </div>
-                            )}
-                            
-                            {/* Thinking indicator: Show when tools are processing or when content indicates continuation */}
-                            {(() => {
-                              const processingTools = message.toolExecutions?.filter(e => e.state === 'input-streaming') || [];
-                              const hasProcessingTools = processingTools.length > 0;
-                              const isContinuing = message.content?.includes('_Continuing') || message.content?.includes('_Executing step');
-                              
-                              if (hasProcessingTools || (isContinuing && !message.content.match(/\*\*|#|Step \d+:/))) {
-                                return (
-                                  <div style={{ 
-                                    padding: '12px', 
-                                    background: 'rgba(59, 130, 246, 0.05)',
-                                    borderRadius: '6px',
-                                    marginBottom: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    fontSize: '13px',
-                                    color: '#6b7280'
-                                  }}>
-                                    <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span>
-                                      {hasProcessingTools 
-                                        ? `Executing ${processingTools.length} tool${processingTools.length > 1 ? 's' : ''}...`
-                                        : 'Processing next step...'
-                                      }
-                                    </span>
-                                  </div>
-                                );
-                              }
-                              return null;
-                            })()}
-                            
-                            {/* Display regular message content - AI Elements Response primitive */}
-                            {message.content && (
-                              <Response 
-                                isAnimating={isLoading && index === messages.length - 1}
-                                parseIncompleteMarkdown={true}
-                                components={{ a: LinkComponent as any }}
-                                className="prose prose-invert max-w-none"
-                              >
-                                {message.content}
-                              </Response>
-                            )}
-                          </>
-                        ) : (
-                          message.content
-                        )}
-                      </>
-                    ) : (
-                      isLoading && message.role === 'assistant' && (
-                        <div className="typing-indicator">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                      )
-                    )}
-                  </div>
-                    </div>
-              );
-            })}
-          </>
+        {showBrowserToolsWarning && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-sm text-amber-800">
+            <strong>Browser Tools Enabled!</strong> Now using {getComputerUseLabel()}.
+            {!settings?.apiKey && (
+              <span> Please <a href="#" onClick={(e) => { e.preventDefault(); openSettings(); }} className="text-blue-600 underline hover:text-blue-800">set your API key</a> in settings.</span>
+            )}
+          </div>
         )}
-      </div>
 
-      <div className="input-form">
-        <AgentComposerIntegration
-          onSubmit={handleComposerSubmit}
-          isLoading={isLoading}
-          disabled={!settings?.apiKey}
-          showSettings={true}
-          onSettingsClick={() => setShowSettings(true)}
-        />
+        <div className="flex-1 overflow-hidden">
+          <Conversation className="h-full">
+            <ConversationContent className="h-full">
+              {messages.length === 0 ? (
+                <div className="flex h-full items-center justify-center">
+                  <div className="welcome-message text-center">
+                    <h2 className="mb-4 text-2xl font-bold text-foreground">How can I help you today?</h2>
+                    <p className="text-muted-foreground">I'm Opulent, your AI assistant. I can help you browse the web, analyze content, and perform various tasks.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {messages.map((message, index) => {
+                    // Filter out intermediate reasoning updates - they clutter the UI
+                    if (message.role === 'assistant' && message.content.includes('💭 **Reasoning Update**')) {
+                      return null;
+                    }
+
+                    const isStepMessage = message.role === 'assistant' && (
+                      message.content.includes('**Step') || 
+                      message.content.includes('Planning Phase') ||
+                      message.content.includes('Planning Complete')
+                    );
+
+                    return (
+                      <div
+                        key={message.id}
+                        className="mx-auto w-full max-w-4xl animate-in fade-in slide-in-from-bottom-1 duration-200 py-4"
+                      >
+                        <Message from={message.role as "user" | "assistant"}>
+                          <MessageContent
+                            className={cn(
+                              message.role === 'user' 
+                                ? "rounded-[24px] rounded-br-sm border bg-background text-foreground"
+                                : "bg-transparent text-foreground"
+                            )}
+                          >
+                            {message.content ? (
+                              <>
+                                {/* Show content based on message type */}
+                                {message.role === 'assistant' ? (
+                                  <>
+                                    {/* Display tool executions using enhanced structured component */}
+                                    {message.toolExecutions && message.toolExecutions.length > 0 && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <EnhancedToolCallDisplay 
+                                          toolParts={message.toolExecutions.map(exec => ({
+                                            type: exec.toolName,
+                                            state: exec.state,
+                                            input: exec.input,
+                                            output: exec.output,
+                                            toolCallId: exec.toolCallId,
+                                            errorText: exec.errorText,
+                                          }))}
+                                        />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display workflow task list (mastra-hitl inspired clean UI) */}
+                                    {message.workflowTasks && message.workflowTasks.length > 0 && (
+                                      <WorkflowTaskList
+                                        tasks={message.workflowTasks}
+                                        autoExpand={index === messages.length - 1}
+                                        emphasizedTasks={new Set(
+                                          message.workflowTasks
+                                            .filter(t => t.status === 'new' || t.status === 'in_progress')
+                                            .map(t => t.id)
+                                        )}
+                                      />
+                                    )}
+                                    
+                                    {/* Display reasoning tokens (OpenRouter/Atlas chain-of-thought) - AI Elements primitive */}
+                                    {message.reasoning && message.reasoning.length > 0 && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <Reasoning 
+                                          isStreaming={isLoading && index === messages.length - 1}
+                                          defaultOpen={false}
+                                          className="rounded-lg border border-border bg-card"
+                                        >
+                                          <ReasoningTrigger />
+                                          <ReasoningContent className="space-y-2 pt-3">
+                                            {message.reasoning.map((thought, idx) => (
+                                              <div 
+                                                key={idx}
+                                                className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground"
+                                              >
+                                                <div className="font-medium text-foreground mb-1">
+                                                  Thought {idx + 1}
+                                                </div>
+                                                <div className="whitespace-pre-wrap">
+                                                  {thought}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </ReasoningContent>
+                                        </Reasoning>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display planning using enhanced structured component */}
+                                    {message.planning && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <EnhancedPlanDisplay 
+                                          plan={message.planning.plan}
+                                          confidence={message.planning.confidence}
+                                          defaultOpen={false}
+                                        />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display page context artifact */}
+                                    {message.pageContext && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <PageContextArtifact pageContext={message.pageContext} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display summarization artifact */}
+                                    {message.summarization && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <SummarizationArtifact summarization={message.summarization} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display error analysis artifact */}
+                                    {message.errorAnalysis && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <ErrorAnalysisArtifact errorAnalysis={message.errorAnalysis} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display execution trajectory artifact */}
+                                    {message.executionTrajectory && message.executionTrajectory.length > 0 && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <ExecutionTrajectoryArtifact trajectory={message.executionTrajectory} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display workflow metadata artifact */}
+                                    {message.workflowMetadata && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <WorkflowMetadataArtifact 
+                                          metadata={message.workflowMetadata}
+                                          totalDuration={message.workflowMetadata.totalDuration}
+                                          finalUrl={message.workflowMetadata.finalUrl}
+                                        />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display step visualization using prompt-kit Steps component */}
+                                    {isStepMessage && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <EnhancedStepDisplay messages={[message]} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Thinking indicator: Show when tools are processing or when content indicates continuation */}
+                                    {(() => {
+                                      const processingTools = message.toolExecutions?.filter(e => e.state === 'input-streaming') || [];
+                                      const hasProcessingTools = processingTools.length > 0;
+                                      const isContinuing = message.content?.includes('_Continuing') || message.content?.includes('_Executing step');
+                                      
+                                      if (hasProcessingTools || (isContinuing && !message.content.match(/\*\*|#|Step \d+:/))) {
+                                        return (
+                                          <div style={{ 
+                                            padding: '12px', 
+                                            background: 'rgba(59, 130, 246, 0.05)',
+                                            borderRadius: '6px',
+                                            marginBottom: '8px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            fontSize: '13px',
+                                            color: '#6b7280'
+                                          }}>
+                                            <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            <span>
+                                              {hasProcessingTools ? 'Processing tools...' : 'Thinking...'}
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+                                    
+                                    {/* Enhanced Response primitive for streaming content */}
+                                    <Response content={message.content} />
+                                  </>
+                                ) : (
+                                  <Response content={message.content} />
+                                )}
+                              </>
+                            ) : (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Generating response...</span>
+                              </div>
+                            )}
+                          </MessageContent>
+                        </Message>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </ConversationContent>
+            
+            {/* Fixed input form structure */}
+            <div className="input-form backdrop-blur-sm">
+              <div className="mx-auto max-w-4xl w-full">
+                <AgentComposerIntegration
+                  onSubmit={handleComposerSubmit}
+                  isLoading={isLoading}
+                  disabled={!settings?.apiKey}
+                  showSettings={true}
+                  onSettingsClick={() => setShowSettings(true)}
+                />
+              </div>
+            </div>
+          </Conversation>
+        </div>
       </div>
+      
       <div ref={messagesEndRef} />
       
       {/* AI SDK Devtools - shows streaming events, tool calls, and performance metrics */}

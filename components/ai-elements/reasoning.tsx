@@ -113,6 +113,7 @@ export type ReasoningTriggerProps = ComponentProps<
   typeof CollapsibleTrigger
 > & {
   title?: string;
+  children?: ReactNode;
 };
 
 export const ReasoningTrigger = memo(
@@ -127,7 +128,7 @@ export const ReasoningTrigger = memo(
     return (
       <CollapsibleTrigger
         className={cn(
-          "flex items-center gap-2 text-muted-foreground text-sm",
+          "flex items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground",
           className
         )}
         {...props}
@@ -136,7 +137,11 @@ export const ReasoningTrigger = memo(
           <>
             <BrainIcon className="size-4" />
             {isStreaming ? (
-              <TextShimmer duration={1.5} spread={2} className="font-medium text-base">
+              <TextShimmer 
+                duration={1.5} 
+                spread={2} 
+                className="font-medium text-base text-foreground"
+              >
                 Thinking...
               </TextShimmer>
             ) : (
@@ -144,7 +149,7 @@ export const ReasoningTrigger = memo(
             )}
             <ChevronDownIcon
               className={cn(
-                "size-4 text-muted-foreground transition-transform",
+                "size-4 text-muted-foreground transition-transform duration-200",
                 isOpen ? "rotate-180" : "rotate-0"
               )}
             />
@@ -197,8 +202,7 @@ export const ReasoningContent = memo(
   )
 );
 
-ReasoningContentContainer.displayName = "ReasoningContentWrapper";
+ReasoningContentContainer.displayName = "ReasoningContentContainer";
 Reasoning.displayName = "Reasoning";
 ReasoningTrigger.displayName = "ReasoningTrigger";
 ReasoningContent.displayName = "ReasoningContent";
-

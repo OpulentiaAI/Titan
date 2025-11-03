@@ -10,11 +10,45 @@ const GATEWAY_MODELS = [
   { id: 'google/gemini-2.5-pro-preview-10-2025', name: 'Gemini 2.5 Pro', description: '1M token context - for complex tasks' },
 ];
 
+const OPENROUTER_MODELS = [
+  { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', description: '🎯 Latest Claude with improved reasoning' },
+  { id: 'anthropic/claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', description: '💡 Balanced performance and speed' },
+  { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', description: '🏆 Most capable Claude model' },
+  { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo', description: '🚀 Latest GPT-4 with 128K context' },
+  { id: 'openai/gpt-4o', name: 'GPT-4o', description: '⚡ Optimized for speed and cost' },
+  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', description: '💨 Fast and affordable' },
+  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: '🚀 Fast and efficient for browser automation' },
+  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '⚡ Fast and efficient with improved capabilities' },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '🏆 Most capable Gemini with 1M token context' },
+  { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5', description: '🔥 Long context with 1M tokens' },
+  { id: 'minimax/minimax-m2:free', name: 'Minimax M2 (Free)', description: '🧠 Compact, high-efficiency LLM optimized for coding and agentic workflows' },
+  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', description: '🦙 Open-source powerhouse' },
+];
+
+const NIM_MODELS = [
+  { id: 'meta/llama-3.3-nemotron-70b-instruct', name: 'Llama 3.3 Nemotron 70B', description: '🎯 NVIDIA optimized Llama 3.3' },
+  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', name: 'Llama 3.1 Nemotron 70B', description: '🚀 Legacy NVIDIA optimized Llama' },
+  { id: 'nvidia/mistral-nemo-minitron-8b-instruct', name: 'Mistral NeMo Minitron 8B', description: '⚡ Fast inference optimized' },
+  { id: 'microsoft/phi-3-medium-128k-instruct', name: 'Phi-3 Medium 128K', description: '💡 Microsoft efficient model' },
+  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: '🚀 Fast Gemini optimized for browser automation' },
+  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '⚡ Enhanced Gemini 2.5 capabilities' },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '🏆 Most capable Gemini with extended context' },
+  { id: 'meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', description: '🦙 Compact but capable' },
+  { id: 'meta/llama-3.1-70b-instruct', name: 'Llama 3.1 70B', description: '🏆 High-performance Llama' },
+  { id: 'minimaxai/minimax-m2', name: 'Minimax M2 (NIM)', description: '🚀 MiniMax M2 with NVIDIA accelerated inference for coding and reasoning' },
+];
+
+const PROVIDERS = [
+  { id: 'gateway' as const, name: 'AI Gateway (Google Gemini)', description: '✅ Optimized for browser automation' },
+  { id: 'openrouter' as const, name: 'OpenRouter', description: '🌐 Access to Claude, GPT-4, Llama, and more' },
+  { id: 'nim' as const, name: 'NVIDIA NIM', description: '⚡ NVIDIA accelerated inference' },
+];
+
 function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
     provider: 'gateway',
     apiKey: 'vck_8Y9AYNnloksx9iwr4HkTdwpz1IyeszKLtvbEitKEwFj6LRCim14fhM9U',
-    model: 'google/gemini-2.5-flash-lite', // Optimized: #1 ranked model for browser automation
+    model: 'openrouter/flash', // Gemini-2.5-flash via OpenRouter - best performance
     toolMode: 'tool-router',
     composioApiKey: '',
     youApiKey: 'ydc-sk-73e008775485cecf-7amBugk9VyOK17smt4LzLwcrVQ5K6UBK-14332916<__>1SO0a7ETU8N2v5f4EbzspvJg',
@@ -28,6 +62,69 @@ function SettingsPage() {
   const [showComposioKey, setShowComposioKey] = useState(false);
   const [showYouKey, setShowYouKey] = useState(false);
   const [showBraintrustKey, setShowBraintrustKey] = useState(false);
+
+  // Helper to get models for current provider
+  const getModelsForProvider = (provider: string) => {
+    switch (provider) {
+      case 'openrouter':
+        return OPENROUTER_MODELS;
+      case 'nim':
+        return NIM_MODELS;
+      case 'gateway':
+      default:
+        return GATEWAY_MODELS;
+    }
+  };
+
+  // Helper to get API key label for current provider
+  const getApiKeyLabel = (provider: string) => {
+    switch (provider) {
+      case 'openrouter':
+        return 'OpenRouter API Key';
+      case 'nim':
+        return 'NVIDIA NIM API Key';
+      case 'gateway':
+      default:
+        return 'AI Gateway API Key';
+    }
+  };
+
+  // Helper to get API key help text for current provider
+  const getApiKeyHelpText = (provider: string) => {
+    switch (provider) {
+      case 'openrouter':
+        return (
+          <>
+            Get your API key from:{' '}
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">
+              OpenRouter Dashboard
+            </a>{' '}
+            (provides access to Claude, GPT-4, Llama, and more models)
+          </>
+        );
+      case 'nim':
+        return (
+          <>
+            Get your API key from:{' '}
+            <a href="https://build.nvidia.com/explore/discover" target="_blank" rel="noopener noreferrer">
+              NVIDIA NIM
+            </a>{' '}
+            (provides NVIDIA accelerated inference for Llama and other models)
+          </>
+        );
+      case 'gateway':
+      default:
+        return (
+          <>
+            Get your API key from:{' '}
+            <a href="https://vercel.com/docs/ai/ai-gateway" target="_blank" rel="noopener noreferrer">
+              Vercel AI Gateway
+            </a>{' '}
+            (provides access to all Google Gemini models)
+          </>
+        );
+    }
+  };
 
   useEffect(() => {
     // Load settings from chrome.storage
@@ -72,7 +169,7 @@ function SettingsPage() {
         const defaultSettings: Settings = {
           provider: 'gateway',
           apiKey: defaultApiKey,
-          model: 'google/gemini-2.5-flash-lite', // Optimized: #1 ranked model for browser automation
+          model: 'openrouter/flash', // Gemini-2.5-flash via OpenRouter - best performance
           toolMode: 'tool-router',
           composioApiKey: '',
           youApiKey: '',
@@ -110,26 +207,59 @@ function SettingsPage() {
 
       <div className="settings-content">
         <div className="info-box" style={{ marginBottom: '24px', background: '#e3f2fd', border: '1px solid #2196f3' }}>
-          <h3>✅ Optimized Configuration</h3>
-          <p>Using AI Gateway with Google Gemini models - proven reliable for browser automation with 98% success rate in production tests.</p>
+          <h3>🤖 AI Provider Configuration</h3>
+          <p>Choose your AI provider and configure models. AI Gateway (Google Gemini) is optimized for browser automation with 98% success rate in production tests.</p>
         </div>
 
         <div className="setting-group">
-          <label>Google Gemini Model (via AI Gateway)</label>
+          <label>AI Provider</label>
+          <select
+            value={settings.provider}
+            onChange={(e) => {
+              const newProvider = e.target.value as 'gateway' | 'openrouter' | 'nim';
+              const newModels = getModelsForProvider(newProvider);
+              const defaultModel = newModels[0].id;
+              setSettings({
+                ...settings,
+                provider: newProvider,
+                model: defaultModel,
+                computerUseEngine: newProvider === 'gateway' ? 'gateway-flash-lite' : 'gateway-flash-lite',
+              });
+            }}
+            className="model-select"
+            aria-label="Select AI provider"
+          >
+            {PROVIDERS.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name} - {provider.description}
+              </option>
+            ))}
+          </select>
+          <p className="help-text">
+            Select the AI provider you want to use. Each provider offers different models and capabilities.
+          </p>
+        </div>
+
+        <div className="setting-group">
+          <label>Model</label>
           <select
             value={settings.model}
-            onChange={(e) => setSettings({ ...settings, model: e.target.value, provider: 'gateway', computerUseEngine: 'gateway-flash-lite' })}
+            onChange={(e) => setSettings({ ...settings, model: e.target.value })}
             className="model-select"
             aria-label="Select model"
           >
-            {GATEWAY_MODELS.map((model) => (
+            {getModelsForProvider(settings.provider).map((model) => (
               <option key={model.id} value={model.id}>
                 {model.name} - {model.description}
               </option>
             ))}
           </select>
           <p className="help-text">
-            All models use AI Gateway for optimal performance. Flash Lite is recommended for browser automation.
+            {settings.provider === 'gateway'
+              ? 'All models use AI Gateway for optimal performance. Flash Lite is recommended for browser automation.'
+              : settings.provider === 'openrouter'
+              ? 'OpenRouter provides access to multiple AI providers through a single API.'
+              : 'NVIDIA NIM provides NVIDIA-accelerated inference for optimized performance.'}
           </p>
         </div>
 
@@ -202,13 +332,13 @@ function SettingsPage() {
         </div>
 
         <div className="setting-group">
-          <label>AI Gateway API Key</label>
+          <label>{getApiKeyLabel(settings.provider)}</label>
           <div className="api-key-input-wrapper">
             <input
               type={showApiKey ? 'text' : 'password'}
               value={settings.apiKey}
               onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
-              placeholder="Enter your AI Gateway API key"
+              placeholder={`Enter your ${getApiKeyLabel(settings.provider)}`}
               className="api-key-input"
             />
             <button
@@ -220,11 +350,7 @@ function SettingsPage() {
             </button>
           </div>
           <p className="help-text">
-            Get your API key from:{' '}
-            <a href="https://vercel.com/docs/ai/ai-gateway" target="_blank" rel="noopener noreferrer">
-              Vercel AI Gateway
-            </a>{' '}
-            (provides access to all Google Gemini models)
+            {getApiKeyHelpText(settings.provider)}
           </p>
         </div>
 

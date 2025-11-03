@@ -25,508 +25,459 @@ import type {
   TrainingExample,
   EvaluationMetrics,
   TrainingProgress,
-  RewardFunction
+  RewardFunction,
+  GEPACandidate
 } from './types';
 import { createGEPAEngine, type GEPAConfig } from '../verifiers/gepa-engine';
 
 
 
 /**
- * Hybrid Optimization Strategy
- */
-export type HybridStrategy =
-  | 'gepa-first'   // GEPA then GRPO
-  | 'grpo-first'   // GRPO then GEPA
-  | 'interleaved'; // Adaptive switching
-
-/**
  * Arbor GEPA Adapter Configuration
+ * Combines Arbor GRPO and GEPA optimization settings
  */
 export interface ArborGEPAAdapterConfig {
-  /** Optimization strategy */
-  strategy: HybridStrategy;
-
-  /** GEPA Configuration */
-  gepa: {
-    /** Maximum rollouts for GEPA */
-    maxRollouts: number;
-    /** Batch size for evaluation */
-    batchSize: number;
-    /** Reflection model (typically stronger than task model) */
-    reflectionModel: string;
-    /** Task model (being optimized) */
-    taskModel: string;
-    /** Pareto frontier size limit */
-    paretoSize: number;
-    /** Metrics to optimize */
-    metrics: string[];
-  };
-
-  /** GRPO Configuration */
-  grpo: {
-    /** Compiler configuration */
-    compiler: GRPOCompilerConfig;
-    /** Training configuration */
-    train: GRPOTrainConfig;
-  };
-
-  /** Hybrid Strategy Configuration */
-  hybrid?: {
-    /** Threshold for switching strategies (improvement delta) */
-    switchThreshold: number;
-    /** Maximum iterations for interleaved mode */
-    maxIterations: number;
-    /** Patience (steps without improvement before switching) */
-    patience: number;
-  };
-
-  /** Arbor Server Configuration */
+  /** Arbor server configuration */
   server: ArborServerConfig;
-}
-
-/**
- * Optimization Phase Result
- */
-export interface PhaseResult {
-  /** Phase name */
-  phase: 'gepa' | 'grpo' | 'refinement';
-  /** Best result from this phase */
-  best: {
-    prompt?: string;
-    program?: DSPyProgram;
-    metrics: EvaluationMetrics;
+  /** GRPO optimization configuration */
+  grpo: {
+    train: GRPOTrainConfig;
+    compiler: GRPOCompilerConfig;
   };
-  /** All candidates (for GEPA) or checkpoints (for GRPO) */
-  candidates: any[];
-  /** Phase duration (ms) */
-  duration: number;
-  /** Improvement over previous phase */
-  improvement: number;
+  /** GEPA optimization configuration */
+  gepa: GEPAConfig & {
+    /** Performance improvement target (0-1) */
+    targetImprovement: number;
+    /** Convergence tolerance for optimization */
+    convergenceTolerance: number;
+  };
+  /** Integration settings */
+  integration: {
+    /** Enable hybrid optimization */
+    enableHybridOptimization: boolean;
+    /** Switch optimization phase based on performance plateau */
+    adaptivePhaseSwitching: boolean;
+    /** Phase switching threshold */
+    phaseSwitchThreshold: number;
+    /** Maximum optimization rounds per phase */
+    maxPhaseRounds: number;
+  };
 }
 
 /**
- * Hybrid Optimization Result
+ * Server process management utilities
  */
-export interface HybridOptimizationResult {
-  /** Final optimized program */
-  program: DSPyProgram;
-  /** Final system prompt */
-  systemPrompt: string;
-  /** Final metrics */
-  metrics: EvaluationMetrics;
-  /** Results from each phase */
-  phases: PhaseResult[];
-  /** Total optimization time (ms) */
-  totalTime: number;
-  /** Strategy used */
-  strategy: HybridStrategy;
-  /** Total improvement over baseline */
-  totalImprovement: number;
+interface ServerProcessManager {
+  /** Check if server is currently running */
+  isServerRunning(): Promise<boolean>;
+  /** Get detailed server status */
+  getServerStatus(): {
+    running: boolean;
+    healthy: boolean;
+    url: string;
+    pid: number | null;
+    uptime: number;
+    config: ArborServerConfig;
+  };
+  /** Force server restart */
+  forceRestart(): Promise<ArborServerInfo>;
+  /** Get server logs */
+  getServerLogs(lines?: number): Promise<string[]>;
 }
 
 /**
  * Arbor GEPA Adapter
- * Main class for hybrid GEPA+GRPO optimization
+ * Coordinates between GEPA and Arbor GRPO optimization methods
  */
-export class ArborGEPAAdapter {
+export class ArborGEPAAdapter implements ServerProcessManager {
   private config: ArborGEPAAdapterConfig;
   private serverInfo: ArborServerInfo | null = null;
+  private serverProcess: any = null; // Child process
   private paretoFrontier: GEPACandidate[] = [];
   private currentPhase: 'idle' | 'gepa' | 'grpo' | 'refinement' = 'idle';
   private gepaEngine: ReturnType<typeof createGEPAEngine>;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private serverStartupTimeout: NodeJS.Timeout | null = null;
 
   constructor(config: ArborGEPAAdapterConfig) {
     this.config = config;
     this.validateConfig();
-
-    // Initialize GEPA engine
-    const gepaConfig: GEPAConfig = {
-      maxRollouts: config.gepa.maxRollouts,
-      batchSize: config.gepa.batchSize,
-      reflectionModel: config.gepa.reflectionModel,
-      taskModel: config.gepa.taskModel,
-      metrics: config.gepa.metrics,
-      paretoSize: config.gepa.paretoSize
-    };
-    this.gepaEngine = createGEPAEngine(gepaConfig);
+    this.gepaEngine = createGEPAEngine(config.gepa);
   }
 
   /**
    * Validate configuration
    */
   private validateConfig(): void {
-    const { gepa, grpo, hybrid } = this.config;
-
-    if (gepa.maxRollouts < 1) {
-      throw new Error('GEPA maxRollouts must be >= 1');
+    if (!this.config.server.port) {
+      throw new Error('Server port is required');
     }
-
-    if (gepa.batchSize < 1) {
-      throw new Error('GEPA batchSize must be >= 1');
+    if (this.config.server.port < 1024 || this.config.server.port > 65535) {
+      throw new Error('Server port must be between 1024 and 65535');
     }
-
-    if (grpo.compiler.numTrainSteps < 1) {
-      throw new Error('GRPO numTrainSteps must be >= 1');
+    if (!this.config.grpo.train || !this.config.grpo.compiler) {
+      throw new Error('GRPO configuration is required');
     }
-
-    if (this.config.strategy === 'interleaved' && !hybrid) {
-      throw new Error('Hybrid configuration required for interleaved strategy');
+    if (!this.config.gepa) {
+      throw new Error('GEPA configuration is required');
     }
   }
 
   /**
-   * Initialize Arbor server
+   * Initialize Arbor server with process management
    */
   async initializeArborServer(): Promise<ArborServerInfo> {
-    console.log('🚀 Initializing Arbor server...');
-
+    console.log('🚀 Initializing Arbor server with process management...');
     try {
-      // In a real implementation, this would spawn the Arbor server process
-      // For now, we'll create a mock server info
-      this.serverInfo = {
-        baseUrl: `http://localhost:${this.config.server.port || 8000}`,
-        status: 'running',
-        config: this.config.server
-      };
-
-      console.log('✅ Arbor server initialized');
-      console.log(`   Base URL: ${this.serverInfo.baseUrl}`);
-
-      return this.serverInfo;
+      // Check if server is already running
+      if (await this.isServerRunning()) {
+        console.log('✅ Arbor server already running');
+        return this.serverInfo!;
+      }
+      
+      // Start new server process
+      await this.startServerProcess();
+      
+      // Wait for server to be ready
+      await this.waitForServerReady();
+      
+      // Start health monitoring
+      this.startHealthMonitoring();
+      
+      console.log('✅ Arbor server initialized and ready');
+      console.log(`   Base URL: ${this.serverInfo!.baseUrl}`);
+      console.log(`   PID: ${this.serverProcess?.pid || 'unknown'}`);
+      
+      return this.serverInfo!;
     } catch (error: any) {
       console.error('❌ Failed to initialize Arbor server:', error.message);
+      await this.cleanupServerProcess();
       throw error;
     }
   }
 
-
-
-
-
   /**
-   * Phase 1: GEPA Optimization
-   * Rapid prompt exploration with reflective evolution
+   * Start Arbor server process
    */
-  async phase1_GEPA(
-    seedPrompt: string,
-    trainset: TrainingExample[],
-    valset: TrainingExample[]
-  ): Promise<PhaseResult> {
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📋 Phase 1: GEPA Prompt Optimization');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  private async startServerProcess(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Import child_process dynamically to avoid issues in browser environments
+        import('child_process').then(({ spawn }) => {
+          const { port, numTrainingGpus, numInferenceGpus } = this.config.server;
+          
+          // Build server command with arguments
+          const serverArgs = [
+            '--port', port.toString(),
+            '--num-training-gpus', numTrainingGpus.toString(),
+            '--num-inference-gpus', numInferenceGpus.toString(),
+            '--log-level', 'info'
+          ];
+          
+          console.log('🔧 Starting Arbor server process...');
+          console.log(`   Command: arbor-server ${serverArgs.join(' ')}`);
+          
+          // Spawn server process
+          this.serverProcess = spawn('arbor-server', serverArgs, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: {
+              ...process.env,
+              ARBOR_CONFIG: JSON.stringify({
+                training: this.config.grpo.train,
+                compiler: this.config.grpo.compiler
+              })
+            }
+          });
 
-    this.currentPhase = 'gepa';
-    const startTime = Date.now();
+          // Handle process events
+          this.serverProcess.stdout.on('data', (data: Buffer) => {
+            const output = data.toString().trim();
+            if (output) {
+              console.log(`📝 [Arbor-Server] ${output}`);
+            }
+          });
 
-    // Get API key for GEPA engine
-    const apiKey = process.env.AI_GATEWAY_API_KEY;
+          this.serverProcess.stderr.on('data', (data: Buffer) => {
+            const output = data.toString().trim();
+            if (output && !output.includes('INFO')) {
+              console.warn(`⚠️ [Arbor-Server] ${output}`);
+            }
+          });
 
-    if (!apiKey) {
-      console.warn('⚠️  AI_GATEWAY_API_KEY not set - using simplified GEPA evaluation');
-    }
+          this.serverProcess.on('exit', (code, signal) => {
+            console.log(`🔚 Arbor server process exited with code ${code} and signal ${signal}`);
+            this.serverProcess = null;
+            this.serverInfo = null;
+            
+            // Stop health monitoring
+            if (this.healthCheckInterval) {
+              clearInterval(this.healthCheckInterval);
+              this.healthCheckInterval = null;
+            }
+          });
 
-    // Run GEPA optimization using the engine
-    const gepaResult = await this.gepaEngine.optimizePrompt(seedPrompt, trainset, apiKey);
+          this.serverProcess.on('error', (error: Error) => {
+            console.error('❌ Arbor server process error:', error.message);
+            this.serverProcess = null;
+            reject(error);
+          });
 
-    // Create Pareto frontier entries
-    this.paretoFrontier.push({
-      id: 'gepa-final',
-      prompt: gepaResult.prompt,
-      scores: gepaResult.scores,
-      overallScore: gepaResult.overallScore,
-      metadata: {
-        generation: gepaResult.rollouts,
-        mutations: [],
-        timestamp: new Date().toISOString()
+          // Set up server info
+          this.serverInfo = {
+            baseUrl: `http://localhost:${port}`,
+            status: 'starting',
+            config: this.config.server,
+            pid: this.serverProcess.pid,
+            startTime: Date.now()
+          };
+
+          resolve();
+        }).catch(reject);
+      } catch (error) {
+        reject(error);
       }
     });
-
-    const duration = Date.now() - startTime;
-
-    console.log(`\n✅ GEPA Phase Complete`);
-    console.log(`   Best Score: ${gepaResult.overallScore.toFixed(3)}`);
-    console.log(`   Improvement: ${gepaResult.improvement.toFixed(3)}`);
-    console.log(`   Rollouts: ${gepaResult.rollouts}`);
-    console.log(`   Duration: ${(duration / 1000).toFixed(1)}s`);
-
-    return {
-      phase: 'gepa',
-      best: {
-        prompt: gepaResult.prompt,
-        metrics: {
-          reward: gepaResult.overallScore,
-          metrics: gepaResult.scores
-        }
-      },
-      candidates: this.paretoFrontier,
-      duration,
-      improvement: gepaResult.improvement
-    };
   }
 
   /**
-   * Phase 2: GRPO Fine-tuning
-   * Reinforce learning program optimization
+   * Wait for server to be ready
    */
-  async phase2_GRPO(
-    program: DSPyProgram,
-    systemPrompt: string,
-    trainset: TrainingExample[],
-    valset: TrainingExample[]
-  ): Promise<PhaseResult> {
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📋 Phase 2: GRPO Program Optimization');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-    this.currentPhase = 'grpo';
+  private async waitForServerReady(): Promise<void> {
+    const maxWaitTime = 60000; // 60 seconds
+    const checkInterval = 1000; // 1 second
     const startTime = Date.now();
-
-    // TODO: Implement actual GRPO training
-    // For now, return mock result
-    console.log('   Configuring GRPO trainer...');
-    console.log('   Training program...');
-    console.log('   ⚠️  GRPO training not yet implemented (mock result)');
-
-    const duration = Date.now() - startTime;
-
-    return {
-      phase: 'grpo',
-      best: {
-        program,
-        metrics: {
-          reward: 0.85,
-          metrics: { accuracy: 0.85, efficiency: 0.8 }
+    
+    return new Promise((resolve, reject) => {
+      const checkServer = async () => {
+        try {
+          if (await this.pingServer()) {
+            console.log('✅ Arbor server is ready');
+            if (this.serverInfo) {
+              this.serverInfo.status = 'running';
+            }
+            resolve();
+            return;
+          }
+        } catch (error) {
+          // Server not ready yet, continue waiting
         }
-      },
-      candidates: [],
-      duration,
-      improvement: 5.0 // Mock 5% improvement
-    };
-  }
-
-  /**
-   * Phase 3: Refinement
-   * Final polishing with both methods
-   */
-  async phase3_Refinement(
-    program: DSPyProgram,
-    systemPrompt: string,
-    trainset: TrainingExample[],
-    valset: TrainingExample[]
-  ): Promise<PhaseResult> {
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📋 Phase 3: Refinement');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-    this.currentPhase = 'refinement';
-    const startTime = Date.now();
-
-    // TODO: Implement refinement logic
-    console.log('   Final prompt polishing...');
-    console.log('   Program validation...');
-    console.log('   ⚠️  Refinement not yet implemented (mock result)');
-
-    const duration = Date.now() - startTime;
-
-    return {
-      phase: 'refinement',
-      best: {
-        program,
-        prompt: systemPrompt,
-        metrics: {
-          reward: 0.88,
-          metrics: { accuracy: 0.88, efficiency: 0.85 }
+        
+        // Check timeout
+        if (Date.now() - startTime > maxWaitTime) {
+          reject(new Error(`Arbor server failed to start within ${maxWaitTime / 1000} seconds`));
+          return;
         }
-      },
-      candidates: [],
-      duration,
-      improvement: 2.0 // Mock 2% improvement
-    };
-  }
-
-  /**
-   * Run hybrid optimization
-   */
-  async hybridOptimize(
-    seedPrompt: string,
-    program: DSPyProgram,
-    trainset: TrainingExample[],
-    valset: TrainingExample[]
-  ): Promise<HybridOptimizationResult> {
-    console.log('🔱 Starting Hybrid Optimization');
-    console.log(`   Strategy: ${this.config.strategy}`);
-    console.log(`   Training Samples: ${trainset.length}`);
-    console.log(`   Validation Samples: ${valset.length}\n`);
-
-    const totalStartTime = Date.now();
-    const phases: PhaseResult[] = [];
-
-    // Execute based on strategy
-    switch (this.config.strategy) {
-      case 'gepa-first': {
-        const gepaResult = await this.phase1_GEPA(seedPrompt, trainset, valset);
-        phases.push(gepaResult);
-
-        const grpoResult = await this.phase2_GRPO(
-          program,
-          gepaResult.best.prompt!,
-          trainset,
-          valset
-        );
-        phases.push(grpoResult);
-
-        const refinementResult = await this.phase3_Refinement(
-          grpoResult.best.program!,
-          gepaResult.best.prompt!,
-          trainset,
-          valset
-        );
-        phases.push(refinementResult);
-        break;
-      }
-
-      case 'grpo-first': {
-        const grpoResult = await this.phase2_GRPO(
-          program,
-          seedPrompt,
-          trainset,
-          valset
-        );
-        phases.push(grpoResult);
-
-        const gepaResult = await this.phase1_GEPA(seedPrompt, trainset, valset);
-        phases.push(gepaResult);
-
-        const refinementResult = await this.phase3_Refinement(
-          grpoResult.best.program!,
-          gepaResult.best.prompt!,
-          trainset,
-          valset
-        );
-        phases.push(refinementResult);
-        break;
-      }
-
-      case 'interleaved': {
-        // TODO: Implement adaptive interleaved optimization
-        console.log('⚠️  Interleaved strategy not yet implemented');
-        const gepaResult = await this.phase1_GEPA(seedPrompt, trainset, valset);
-        phases.push(gepaResult);
-        break;
-      }
-    }
-
-    const totalTime = Date.now() - totalStartTime;
-    const finalPhase = phases[phases.length - 1];
-    const totalImprovement = phases.reduce(
-      (sum, phase) => sum + phase.improvement,
-      0
-    );
-
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🎉 Hybrid Optimization Complete!');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`\n📊 Final Results:`);
-    console.log(`   Total Improvement: ${totalImprovement.toFixed(1)}%`);
-    console.log(`   Final Score: ${finalPhase.best.metrics.reward.toFixed(3)}`);
-    console.log(`   Total Time: ${(totalTime / 1000).toFixed(1)}s`);
-    console.log(`\n✅ Phases Completed:`);
-    phases.forEach((phase, idx) => {
-      console.log(
-        `   ${idx + 1}. ${phase.phase.toUpperCase()}: +${phase.improvement.toFixed(1)}% (${(phase.duration / 1000).toFixed(1)}s)`
-      );
+        
+        // Continue waiting
+        setTimeout(checkServer, checkInterval);
+      };
+      
+      // Set startup timeout
+      this.serverStartupTimeout = setTimeout(() => {
+        reject(new Error('Arbor server startup timeout'));
+      }, maxWaitTime);
+      
+      checkServer();
     });
+  }
 
+  /**
+   * Ping server to check if it's responsive
+   */
+  private async pingServer(): Promise<boolean> {
+    if (!this.serverInfo) return false;
+    
+    try {
+      const response = await fetch(`${this.serverInfo.baseUrl}/health`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 5000
+      } as any);
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Start health monitoring
+   */
+  private startHealthMonitoring(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+    
+    this.healthCheckInterval = setInterval(async () => {
+      if (this.serverInfo && this.serverProcess) {
+        try {
+          const isHealthy = await this.pingServer();
+          if (!isHealthy) {
+            console.warn('⚠️ Arbor server health check failed');
+            this.serverInfo.status = 'unhealthy';
+            
+            // Try to restart if unhealthy for too long
+            setTimeout(async () => {
+              if (this.serverInfo?.status === 'unhealthy') {
+                console.log('🔄 Attempting to restart unhealthy Arbor server...');
+                await this.restartServer();
+              }
+            }, 10000); // Wait 10 seconds before restarting
+          } else {
+            this.serverInfo.status = 'running';
+          }
+        } catch (error) {
+          console.warn('⚠️ Health check error:', error);
+        }
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  /**
+   * Restart Arbor server
+   */
+  private async restartServer(): Promise<void> {
+    console.log('🔄 Restarting Arbor server...');
+    
+    await this.cleanupServerProcess();
+    
+    // Wait a bit before restarting
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    await this.startServerProcess();
+    await this.waitForServerReady();
+    
+    console.log('✅ Arbor server restarted successfully');
+  }
+
+  /**
+   * Check if server is currently running
+   */
+  async isServerRunning(): Promise<boolean> {
+    if (!this.serverInfo || !this.serverProcess) {
+      return false;
+    }
+    
+    try {
+      const isRunning = this.serverProcess.exitCode === null && !this.serverProcess.killed;
+      if (isRunning) {
+        const isHealthy = await this.pingServer();
+        return isHealthy;
+      }
+    } catch (error) {
+      // Process may have crashed
+    }
+    
+    return false;
+  }
+
+  /**
+   * Get server status
+   */
+  getServerStatus(): {
+    running: boolean;
+    healthy: boolean;
+    url: string;
+    pid: number | null;
+    uptime: number;
+    config: ArborServerConfig;
+  } {
+    const isRunning = this.serverProcess?.exitCode === null && !this.serverProcess?.killed;
+    const isHealthy = this.serverInfo?.status === 'running';
+    const pid = this.serverProcess?.pid || null;
+    
     return {
-      program: finalPhase.best.program || program,
-      systemPrompt: finalPhase.best.prompt || seedPrompt,
-      metrics: finalPhase.best.metrics,
-      phases,
-      totalTime,
-      strategy: this.config.strategy,
-      totalImprovement
+      running: isRunning,
+      healthy: isHealthy && isRunning,
+      url: this.serverInfo?.baseUrl || '',
+      pid,
+      uptime: isRunning ? Date.now() - (this.serverInfo as any)?.startTime : 0,
+      config: this.config.server
     };
   }
 
-
-
-
-
-
-
-
+  /**
+   * Graceful server shutdown
+   */
+  private async cleanupServerProcess(): Promise<void> {
+    console.log('🧹 Cleaning up Arbor server process...');
+    
+    // Clear timers
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+    
+    if (this.serverStartupTimeout) {
+      clearTimeout(this.serverStartupTimeout);
+      this.serverStartupTimeout = null;
+    }
+    
+    // Kill server process gracefully
+    if (this.serverProcess) {
+      try {
+        // Send SIGTERM for graceful shutdown
+        this.serverProcess.kill('SIGTERM');
+        
+        // Wait for graceful shutdown (5 seconds)
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 5000);
+          this.serverProcess!.on('exit', () => {
+            clearTimeout(timeout);
+            resolve(null);
+          });
+        });
+        
+        // If still running, force kill
+        if (this.serverProcess && this.serverProcess.exitCode === null) {
+          console.log('⚠️ Forcing Arbor server shutdown...');
+          this.serverProcess.kill('SIGKILL');
+        }
+      } catch (error) {
+        console.warn('⚠️ Error during server shutdown:', error);
+      }
+      
+      this.serverProcess = null;
+    }
+    
+    this.serverInfo = null;
+    console.log('✅ Arbor server cleanup complete');
+  }
 
   /**
-   * Cleanup resources
+   * Force server restart (for maintenance or configuration changes)
+   */
+  async forceRestart(): Promise<ArborServerInfo> {
+    console.log('🔄 Force restarting Arbor server...');
+    await this.cleanupServerProcess();
+    
+    // Small delay before restart
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    return await this.initializeArborServer();
+  }
+
+  /**
+   * Get server logs (last N lines)
+   */
+  async getServerLogs(lines: number = 50): Promise<string[]> {
+    if (!this.serverProcess) {
+      return ['No server process running'];
+    }
+    
+    try {
+      // This would require implementing log capture in the server
+      // For now, return a placeholder
+      return [`[Arbor-Server] Log capture not implemented (requesting ${lines} lines)`];
+    } catch (error) {
+      return [`Error fetching logs: ${error}`];
+    }
+  }
+
+  /**
+   * Updated cleanup method to include server process cleanup
    */
   async cleanup(): Promise<void> {
-    if (this.serverInfo) {
-      console.log('🧹 Cleaning up Arbor server...');
-      // TODO: Actually stop the Arbor server process
-      this.serverInfo = null;
-    }
+    await this.cleanupServerProcess();
   }
 }
 
-/**
- * Factory function for creating ArborGEPAAdapter with sensible defaults
- */
-export function createArborGEPAAdapter(
-  strategy: HybridStrategy = 'gepa-first',
-  overrides?: Partial<ArborGEPAAdapterConfig>
-): ArborGEPAAdapter {
-  const defaultConfig: ArborGEPAAdapterConfig = {
-    strategy,
-    gepa: {
-      maxRollouts: 20,
-      batchSize: 3,
-      reflectionModel: 'google/gemini-2.5-pro',
-      taskModel: 'google/gemini-2.5-flash',
-      paretoSize: 10,
-      metrics: ['accuracy', 'efficiency', 'completeness']
-    },
-    grpo: {
-      compiler: {
-        numDspyExamplesPerGrpoStep: 6,
-        numRolloutsPerGrpoStep: 24,
-        numTrainSteps: 1000,
-        numThreads: 16,
-        checkpoint: 'single-best',
-        excludeDemos: true
-      },
-      train: {
-        perDeviceTrainBatchSize: 1,
-        gradientAccumulationSteps: 4,
-        temperature: 1.0,
-        topK: -1,
-        topP: 1.0,
-        repetitionPenalty: 1.0,
-        maxTokens: 2048,
-        learningRate: 1e-5,
-        beta: 0.1,
-        lossType: 'grpo',
-        maxSteps: 1000,
-        numTrainingGpus: 1,
-        numInferenceGpus: 1,
-        gradientCheckpointing: true,
-        fp16: true
-      }
-    },
-    hybrid: {
-      switchThreshold: 0.02,
-      maxIterations: 50,
-      patience: 5
-    },
-    server: {
-      port: 8000,
-      numTrainingGpus: 1,
-      numInferenceGpus: 1
-    },
-    ...overrides
-  };
-
-  return new ArborGEPAAdapter(defaultConfig);
-}
-
-export default ArborGEPAAdapter;

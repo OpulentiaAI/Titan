@@ -1717,6 +1717,19 @@ export async function browserAutomationWorkflow(
     console.log('  - abortSignal exists:', !!context.abortSignal);
 
     console.log('🎯 [WORKFLOW] REACHED STREAMING STEP CALL - EXECUTING NOW');
+    console.log('🚀 [WORKFLOW] About to call streamingStep with parameters:', {
+      hasModel: !!model,
+      hasSystem: !!system,
+      hasTools: !!tools,
+      hasAgentMessages: !!agentMessages,
+      agentMessagesLength: agentMessages?.length || 0,
+      hasExecSteps: !!execSteps,
+      execStepsLength: execSteps?.length || 0,
+      hasUpdateLastMessage: typeof context.updateLastMessage === 'function',
+      hasPushMessage: typeof context.pushMessage === 'function',
+      hasAbortSignal: !!context.abortSignal,
+    });
+
     const streaming = await streamingStep({
       model,
       system,
@@ -1728,7 +1741,15 @@ export async function browserAutomationWorkflow(
       abortSignal: context.abortSignal,
     });
     console.log('🎯 [WORKFLOW] STREAMING STEP COMPLETED');
-    
+    console.log('✅ [WORKFLOW] Streaming step returned:', {
+      hasStreamingResult: !!streaming,
+      streamingType: typeof streaming,
+      hasFullText: !!streaming?.fullText,
+      fullTextLength: streaming?.fullText?.length || 0,
+      toolCallCount: streaming?.toolCallCount || 0,
+      finishReason: streaming?.finishReason,
+    });
+
 // ============================================
      // PHASE 5.5: Result Aggregation & Evaluation (Before Summarization)
      // ============================================

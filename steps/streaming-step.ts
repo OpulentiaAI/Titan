@@ -261,6 +261,50 @@ export async function streamingStep(
     
     const agentTimer = agentDebug.time('Agent Stream');
 
+    // Connectivity pre-check: Test model with minimal 1-token call
+    try {
+      streamingDebug.info('Running connectivity pre-check before streaming', {
+        modelType: typeof input.model,
+        modelName: input.model?.name || input.model?.modelName || 'unknown',
+      });
+
+      // Create a minimal test message to verify connectivity
+      const testMessages = [{
+        role: 'user' as const,
+        content: 'Test connectivity - respond with "OK"'
+      }];
+
+      const testStream = await input.model.stream({
+        messages: testMessages,
+        maxTokens: 5, // Very minimal response
+      });
+
+      const testResult = await testStream;
+      const testText = testResult.text || '';
+
+      streamingDebug.info('Connectivity pre-check successful', {
+        testResponseLength: testText.length,
+        testResponsePreview: testText.substring(0, 50),
+        hasValidResponse: testText.length > 0,
+      });
+
+      console.log('✅ [CONNECTIVITY] Pre-check passed - model is responsive');
+
+    } catch (preCheckError: any) {
+      streamingDebug.error('Connectivity pre-check failed', preCheckError);
+      console.error('❌ [CONNECTIVITY] Pre-check failed - model connectivity issue:', {
+        message: preCheckError?.message,
+        name: preCheckError?.name,
+        stack: preCheckError?.stack,
+        cause: preCheckError?.cause,
+        errorType: typeof preCheckError,
+        errorKeys: Object.keys(preCheckError || {}),
+      });
+
+      // Don't throw here - let the main stream attempt proceed and fail with full error details
+      console.log('⚠️  [CONNECTIVITY] Continuing with main stream despite pre-check failure');
+    }
+
     try {
       streamingDebug.info('Calling agent.stream() with messages', {
         messageCount: aiMessages.length,
@@ -296,7 +340,20 @@ export async function streamingStep(
         cause: streamError?.cause,
         errorType: typeof streamError,
         errorKeys: Object.keys(streamError || {}),
+        // Additional error details for debugging
+        code: streamError?.code,
+        status: streamError?.status,
+        statusText: streamError?.statusText,
+        url: streamError?.url,
+        // Check for common AI SDK error patterns
+        isAuthError: streamError?.message?.includes('auth') || streamError?.message?.includes('key'),
+        isNetworkError: streamError?.message?.includes('network') || streamError?.message?.includes('fetch'),
+        isRateLimitError: streamError?.message?.includes('rate') || streamError?.message?.includes('limit'),
+        isModelError: streamError?.message?.includes('model') || streamError?.message?.includes('not found'),
       });
+
+      // Log full error object for maximum debugging info
+      console.error('❌ [STREAMING] Full error object:', JSON.stringify(streamError, Object.getOwnPropertyNames(streamError), 2));
 
       // Re-throw to let workflow handle it
       throw streamError;

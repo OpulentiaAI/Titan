@@ -1,5 +1,13 @@
 // Background service worker for the extension
 
+// __name polyfill for AI SDK compatibility in browser environment
+if (typeof globalThis !== 'undefined' && !globalThis.__name) {
+  globalThis.__name = (target: any, name: string) => {
+    Object.defineProperty(target, 'name', { value: name, configurable: true });
+    return target;
+  };
+}
+
 // Memory store for browser context
 interface BrowserMemory {
   recentPages: Array<{ url: string; title: string; timestamp: number; context?: any }>;

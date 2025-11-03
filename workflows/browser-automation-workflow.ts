@@ -1422,6 +1422,12 @@ export async function browserAutomationWorkflow(
     
     // Mark execution as in progress when streaming starts
     updateWorkflowTasks('execute', 'in_progress', 'Executing browser actions...');
+    console.log('🚀 [WORKFLOW] About to call streaming step', {
+      messagesValidated: true,
+      messageCount: messages.length,
+      agentMessageCount: agentMessages.length,
+      toolCount: Object.keys(tools).length,
+    });
     
     const streaming = await streamingStep({
       model,

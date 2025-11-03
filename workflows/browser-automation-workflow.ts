@@ -1819,6 +1819,7 @@ export async function browserAutomationWorkflow(
     const streamingErrored = streaming.finishReason === 'error';
     const evaluationSuggestsImprove = finalEvaluation?.shouldImprove === true;
     const shouldAttemptDiagnostics = execSteps.length > 0;
+    const needsRecovery = hasFailedSteps || streamingErrored || evaluationSuggestsImprove;
 
     if (shouldAttemptDiagnostics) {
       updateWorkflowTasks('analyze', 'in_progress', 'Reviewing execution trajectory...');
@@ -1829,8 +1830,6 @@ export async function browserAutomationWorkflow(
         streaming_error: streamingErrored,
         evaluation_suggests_improve: evaluationSuggestsImprove,
       });
-
-      const needsRecovery = hasFailedSteps || streamingErrored || evaluationSuggestsImprove;
 
       if (needsRecovery) {
 

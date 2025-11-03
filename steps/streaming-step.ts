@@ -5,7 +5,7 @@ import { Experimental_Agent as ToolLoopAgent, stepCountIs } from 'ai';
 import type { StreamingStepOutput } from '../schemas/workflow-schemas';
 import type { Message } from '../types';
 import { logEvent, logStepProgress, logToolExecution } from '../lib/braintrust.ts';
-import { createEnhancedAgentConfig, type AgentCapabilities } from '../lib/agent-enhancements.ts';
+import { createEnhancedAgentConfig, type AgentCapabilities, AgentPerformanceMonitor } from '../lib/agent-enhancements.ts';
 import { streamingDebug, agentDebug, messageDebug, toolDebug } from '../lib/debug-logger.ts';
 
 interface StreamingStepInput {
@@ -274,11 +274,15 @@ export async function streamingStep(
         content: 'Test connectivity - respond with "OK"'
       }];
 
-      const testStream = await input.model.stream({
-        messages: testMessages,
-        maxTokens: 5, // Very minimal response
+      // Use the ToolLoopAgent for connectivity test instead of direct model.stream
+      const testAgent = new ToolLoopAgent({
+        model: input.model,
+        instructions: 'You are a test agent. Respond with "OK" to any message.',
+        tools: {}, // No tools for connectivity test
+        toolChoice: 'none', // No tool calling for test
       });
 
+      const testStream = await testAgent.stream({ messages: testMessages });
       const testResult = await testStream;
       const testText = testResult.text || '';
 

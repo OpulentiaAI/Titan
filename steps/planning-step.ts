@@ -4,9 +4,9 @@
 import { z } from 'zod';
 import type { PlanningStepOutput, BrowserAutomationWorkflowInput } from '../schemas/workflow-schemas';
 import type { PlanningResult } from '../types';
-import { logEvent, logStepProgress } from '../lib/braintrust';
-import { planningDebug } from '../lib/debug-logger';
-import { calculateComplexityScore, calculateConfidence } from '../planner.js';
+import { logEvent, logStepProgress } from '../lib/braintrust.ts';
+import { planningDebug } from '../lib/debug-logger.ts';
+import { calculateComplexityScore, calculateConfidence } from '../planner.ts';
 
 /**
  * Planning Step - Mandatory GEPA-inspired planning evaluator
@@ -233,4 +233,3 @@ const duration = Date.now() - startTime;
      return fallbackPlan;
    }
 }
-

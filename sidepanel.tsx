@@ -7,7 +7,7 @@ import { GeminiResponseSchema } from './types';
 import { stepCountIs } from 'ai';
 import { initializeBraintrust } from './lib/braintrust';
 import { AIDevtools } from '@ai-sdk-tools/devtools';
-import { Provider, useChatMessages, useChatActions } from '@ai-sdk-tools/store';
+import { Provider, useChatMessages, useChatActions, useChatStoreApi } from '@ai-sdk-tools/store';
 import { StepDisplay } from './components/StepDisplay';
 import { EnhancedStepDisplay } from './components/EnhancedStepDisplay';
 import { ToolExecutionDisplay } from './components/ToolExecutionDisplay';
@@ -94,14 +94,16 @@ function ChatSidebar() {
   
   // Use @ai-sdk-tools/store for high-performance message management
   // Store works with message-like structures - we'll use type assertion for compatibility
-  const messages = useChatMessages<any>() as Message[];
+  const messages = (useChatMessages<any>() as Message[]) || [];
   const actions = useChatActions<any>();
   const { setMessages, pushMessage, replaceMessageById } = actions;
+  const chatStoreApi = useChatStoreApi();
   
   // Helper function to update the last message (common pattern)
   const updateLastMessage = (updater: (msg: Message) => Message) => {
-    if (messages.length === 0) return;
-    const lastMsg = messages[messages.length - 1];
+    const currentMessages = Array.isArray(messages) ? messages : [];
+    if (currentMessages.length === 0) return;
+    const lastMsg = currentMessages[currentMessages.length - 1];
     if (lastMsg) {
       replaceMessageById(lastMsg.id, updater(lastMsg));
     }
@@ -123,6 +125,20 @@ function ChatSidebar() {
   const settingsHashRef = useRef('');
   const mcpInitPromiseRef = useRef<Promise<void> | null>(null);
   const composioSessionRef = useRef<{ expiresAt: number } | null>(null);
+  // Track the active browser tab id for metadata/tracking
+  const browserTabIdRef = useRef<number | null>(null);
+  const browserTabUrlRef = useRef<string | null>(null);
+
+  // Initialize active tab id on mount
+  useEffect(() => {
+    try {
+      chrome.runtime?.sendMessage({ type: 'GET_TAB_INFO' }, (info) => {
+        if (info?.id) browserTabIdRef.current = info.id as number;
+      });
+    } catch (_) {
+      // Ignore if not available
+    }
+  }, []);
 
   const executeTool = async (toolName: string, parameters: any, retryCount = 0): Promise<any> => {
     const MAX_RETRIES = 3;
@@ -144,12 +160,11 @@ function ChatSidebar() {
     };
 
     const TOOL_TIMEOUT = TOOL_TIMEOUTS[toolName] || 8000;
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    // Track tool execution start across try/catch
+    const executionStartTime = Date.now();
     
     try {
-      // Track tool execution start
-      const executionStartTime = Date.now();
-      
       // Create a promise that rejects on timeout
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
@@ -197,10 +212,34 @@ function ChatSidebar() {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown tool execution error';
+      // Ensure timeout is cleared on failure as well
+      if (timeoutId) clearTimeout(timeoutId);
       const executionDuration = Date.now() - executionStartTime;
       
       console.error(`❌ [executeTool] ${toolName} failed after ${executionDuration}ms:`, errorMessage);
-      
+
+      // Gracefully handle restricted pages (e.g., chrome:// URLs)
+      if (errorMessage.includes('chrome://')) {
+        console.warn(`⚠️ [executeTool] ${toolName} encountered restricted URL. Returning cached context.`);
+        const fallbackResult = {
+          success: true,
+          url: browserTabUrlRef.current || '',
+          pageContext: {
+            url: browserTabUrlRef.current || '',
+            title: '',
+            textContent: '',
+            links: [],
+            images: [],
+            forms: [],
+            metadata: {},
+            viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0, devicePixelRatio: 1 },
+          },
+          error: errorMessage,
+        };
+        trackToolExecution(toolName, parameters, 'output-available', fallbackResult);
+        return fallbackResult;
+      }
+
       // Retry logic for transient failures
       const transientErrors = [
         'timeout',
@@ -258,22 +297,17 @@ function ChatSidebar() {
       duration: Date.now() - (input?._startTime || Date.now()),
       metadata: {
         retryCount: input?._retryCount || 0,
-        browserTabId: browserTabId,
-        url: currentUrl,
+        browserTabId: browserTabIdRef.current ?? undefined,
+        url: browserTabUrlRef.current || undefined,
         ...input?._metadata
       }
     };
 
-    setMessages(prevMessages => {
-      const lastMessageIndex = prevMessages.length - 1;
-      if (lastMessageIndex < 0) return prevMessages;
+    // Update the last assistant message using replaceMessageById via helper
+    updateLastMessage((msg) => {
+      if (msg.role !== 'assistant') return msg;
 
-      const lastMessage = prevMessages[lastMessageIndex];
-      if (lastMessage.role !== 'assistant') return prevMessages;
-
-      const updatedToolExecutions = [...(lastMessage.toolExecutions || [])];
-      
-      // Remove any existing execution with the same ID
+      const updatedToolExecutions = [...(msg.toolExecutions || [])];
       const existingIndex = updatedToolExecutions.findIndex(exec => exec.toolCallId === executionId);
       if (existingIndex >= 0) {
         updatedToolExecutions[existingIndex] = execution;
@@ -281,17 +315,14 @@ function ChatSidebar() {
         updatedToolExecutions.push(execution);
       }
 
-      return [
-        ...prevMessages.slice(0, -1),
-        {
-          ...lastMessage,
-          toolExecutions: updatedToolExecutions,
-          metadata: {
-            ...lastMessage.metadata,
-            lastToolUpdate: Date.now()
-          }
-        }
-      ];
+      return {
+        ...msg,
+        toolExecutions: updatedToolExecutions,
+        metadata: {
+          ...msg.metadata,
+          lastToolUpdate: Date.now(),
+        },
+      } as Message;
     });
 
     console.log(`🔧 [trackToolExecution] ${toolName} (${state}):`, {
@@ -745,94 +776,32 @@ function ChatSidebar() {
 
       // GEPA-optimized system prompt: enhanced through AI-powered evolutionary optimization
       // Run ID: run-1761861321816
-      const systemInstruction = `You are a browser automation assistant with ONLY browser control capabilities.
+      const systemInstruction = `You are a browser automation assistant with browser-only capabilities.
 
-CRITICAL: You can ONLY use the computer_use tool functions for browser automation. DO NOT attempt to call any other functions like print, execute, or any programming functions.
+You MUST use the provided browser tools exactly as documented. Never invent new functions or call arbitrary code helpers.
 
-AVAILABLE ACTIONS (computer_use tool only):
-- click / click_at: Click at coordinates
-- type_text_at: Type text (optionally with press_enter)
-- scroll / scroll_down / scroll_up: Scroll the page
-- navigate: Navigate to a URL
-- wait / wait_5_seconds: Wait for page load
+AVAILABLE ACTIONS (computer_use tool interface):
+- navigate({ url: string }) — open a URL (must include protocol like https://)
+- getPageContext() — retrieve the latest DOM summary before acting (no parameters needed)
+- click({ selector?: string, x?: number, y?: number }) — click element by CSS selector OR coordinates (provide one or the other)
+- type_text({ selector?: string, text: string, press_enter?: boolean }) — type text into input by selector or focused element
+- scroll({ direction?: "up"|"down"|"top"|"bottom", amount?: number, selector?: string }) — scroll page or element
+- wait({ seconds: number }) — pause for specified seconds (max 60)
+- press_key({ key: string }) — press single key like "Enter", "Tab", "Escape"
+- key_combination({ keys: string[] }) — press key combination like ["Control", "A"]
 
-GUIDELINES (Validated Patterns):
-1. NAVIGATION: Use 'navigate' function to go to websites
-   Example: navigate({url: "https://www.reddit.com"})
-   - Always wait 2.5s after navigation for page load
-   - Verify page loaded by checking screenshot for expected content
+CORE LOOP — **THINK → ACT → VERIFY**
+1. THINK: State the immediate objective. Inspect page context to locate real selectors, URLs, or element labels. If you lack context, call getPageContext first.
+2. ACT: Choose the correct tool with all required parameters. Prefer selectors from context; if using coordinates, explain why.
+3. VERIFY: After each action, wait if needed, then confirm the result via getPageContext or visible page changes. If the result is unexpected, adjust plan or parameters.
 
-2. INTERACTION: Use coordinates from the screenshot you see
-   - Click at coordinates to interact with elements
-   - Type text at coordinates to fill forms
-   - Wait for elements to be visible before interacting (check screenshot)
-
-3. NO HALLUCINATING: Only use the functions listed above. Do NOT invent or call functions like print(), execute(), or any code functions.
-
-4. EFFICIENCY: Complete tasks in fewest steps possible.
-
-VALIDATED EXECUTION PATTERNS:
-- Visual computer use requires waiting for page state changes (check screenshots)
-- After navigation, wait 2.5s minimum before next action
-- After form submission, wait 1.5s minimum for page response
-- Verify action success by checking screenshot for expected result
-- If screenshot shows error or unexpected state, pause and reassess
-
-**Your Core Strategy: Think -> Act**
-
-For each step, follow this strict cycle:
-
-1. **THINK:**
-   - **Goal:** State your single, immediate objective (e.g., "Click the 'Login' button")
-   - **Observation:** Analyze the screenshot you see. Identify the target element by:
-     * Looking for text labels or ARIA labels that match your goal
-     * Identifying visual elements (buttons, inputs, links) by their appearance and position
-     * Determining the center coordinates (x, y) of the interactive element
-   - **Decision:** Confirm the element and coordinates before acting
-     * Example: "Goal: Click 'Login' button. Observation: I see a button labeled 'Login' at approximately coordinates (400, 300). Decision: I will click at (400, 300)."
-
-2. **ACT:**
-   - Execute the single action using the coordinates from your THINK step
-   - Use the appropriate tool: click_at, type_text_at, navigate, scroll, or wait
-
-3. **VERIFY:**
-   - After each action, observe the new screenshot
-   - Confirm the action succeeded by checking for expected changes:
-     * Page navigation occurred
-     * Text appeared in input field
-     * New page content loaded
-     * Button state changed
-   - If verification fails, re-evaluate and try alternative coordinates or approach
-
-**GUIDELINES (Validated Patterns):**
-
-1. NAVIGATION:
-   - Use navigate({url: "https://example.com"}) to go to websites
-   - Always wait 2.5s after navigation for page load
-   - Verify page loaded by checking screenshot for expected content (title, main content)
-
-2. INTERACTION:
-   - Always THINK before ACTING - identify element by label/text first, then coordinates
-   - Target the center of interactive elements (buttons, inputs, links)
-   - For input fields, click first to focus, then type
-   - Wait for elements to be visible before interacting
-
-3. NO HALLUCINATING:
-   - Only use the functions listed above
-   - Do NOT invent functions like print(), execute(), or any code functions
-   - If an element isn't visible, scroll to find it before acting
-
-4. EFFICIENCY:
-   - Complete tasks in fewest steps possible
-   - One action per Think->Act cycle
-   - Verify success before proceeding to next step
-
-**VALIDATED EXECUTION PATTERNS:**
-- After navigation, wait 2.5s minimum before next action
-- After form submission, wait 1.5s minimum for page response
-- Verify action success by checking screenshot for expected result
-- If screenshot shows error or unexpected state, pause and reassess
-- Use scroll when needed elements are not visible in current viewport
+MANDATORY PRACTICES
+- Before interacting with new elements, gather fresh context (getPageContext).
+- Never guess selectors—use the ones provided in context responses.
+- After navigate, wait at least 2.5 seconds before issuing the next command.
+- When typing, click/focus first if necessary, then type_text, and optionally press Enter.
+- Execute one tool call per step, then verify success.
+- On failure, explain the issue, adjust (scroll, wait, new selector), and retry or escalate to the user.
 
 ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBlock + '\n' : ''}`;
 
@@ -1557,13 +1526,39 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           hasYouApi: !!settings?.youApiKey,
         });
         
+        // Helper to query active tab info
+        const getActiveTabInfo = async (): Promise<{ id?: number; url?: string }> => {
+          return new Promise((resolve) => {
+            try {
+              chrome.runtime?.sendMessage({ type: 'GET_TAB_INFO' }, (info) => {
+                resolve(info || {});
+              });
+            } catch (error) {
+              resolve({});
+            }
+          });
+        };
+
         // Get initial page context
         let initialPageContext: any = null;
-        let currentUrl = '';
+        let currentUrl = browserTabUrlRef.current || '';
         try {
-          initialPageContext = await executeTool('getPageContext', {});
-          currentUrl = initialPageContext?.url || '';
-          console.log('🌐 [Gateway Computer Use] Initial page context retrieved, URL:', currentUrl);
+          const tabInfo = await getActiveTabInfo();
+          if (tabInfo?.id) browserTabIdRef.current = tabInfo.id as number;
+          if (tabInfo?.url) {
+            browserTabUrlRef.current = tabInfo.url;
+            currentUrl = tabInfo.url;
+          }
+
+          const isRestricted = tabInfo?.url?.startsWith('chrome://');
+          if (isRestricted) {
+            console.warn('⚠️ Skipping initial page context (restricted URL):', tabInfo?.url);
+          } else {
+            initialPageContext = await executeTool('getPageContext', {});
+            currentUrl = initialPageContext?.url || currentUrl;
+            browserTabUrlRef.current = currentUrl || browserTabUrlRef.current;
+            console.log('🌐 [Gateway Computer Use] Initial page context retrieved, URL:', currentUrl);
+          }
         } catch (e) {
           console.warn('⚠️ Could not get initial page context:', e);
         }
@@ -1572,8 +1567,12 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         const getPageContextAfterAction = async (): Promise<PageContext> => {
           try {
             const ctx = await executeTool('getPageContext', {});
+            if (ctx?.url) {
+              currentUrl = ctx.url;
+              browserTabUrlRef.current = ctx.url;
+            }
             return {
-              url: ctx?.url || '',
+              url: ctx?.url || currentUrl || '',
               title: ctx?.title || '',
               textContent: ctx?.text || ctx?.textContent || '',
               links: ctx?.links || [],
@@ -1585,7 +1584,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           } catch (e) {
             console.warn('Failed to get page context after action:', e);
             return { 
-              url: '', 
+              url: currentUrl || browserTabUrlRef.current || '', 
               title: '', 
               textContent: '', 
               links: [], 
@@ -1597,16 +1596,20 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           }
         };
         
-        const enrichToolResponseForWorkflow = async (res: any, _toolName: string) => {
+        const enrichToolResponseForWorkflow = async (res: any, toolName: string) => {
           try {
+            // For very fast navigations, add a small delay before reading context
+            if (toolName === 'navigate') {
+              await new Promise(resolve => setTimeout(resolve, 400));
+            }
             const pageCtx = await getPageContextAfterAction();
             return {
               success: res?.success !== false,
-              url: pageCtx.url || res?.url,
+              url: pageCtx.url || res?.url || currentUrl,
               pageContext: pageCtx,
             };
           } catch (e) {
-            return { success: res?.success !== false, url: res?.url };
+            return { success: res?.success !== false, url: res?.url || currentUrl };
           }
         };
         
@@ -1662,11 +1665,11 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         
         // Ensure final summary is displayed (fix for streaming not updating UI)
         if (workflowOutput.summarization?.success && workflowOutput.summarization.summary) {
-          console.log('📊 [Gateway Computer Use] Displaying final summary (', workflowOutput.summarization.summary.length, 'chars)');
-          
+          console.log('📊 [Gateway Computer Use] Displaying successful summary (', workflowOutput.summarization.summary.length, 'chars)');
+
           // Import task manager for workflow tasks
           const { convertLegacyTasks } = await import('./lib/task-manager');
-          
+
           // Always push a final summary message to ensure it's visible
           // This ensures the summary shows even if streaming updates didn't work
           const finalSummaryMessage: Message = {
@@ -1681,7 +1684,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
               totalDuration: workflowOutput.totalDuration,
               finalUrl: workflowOutput.finalUrl,
             },
-            workflowTasks: workflowOutput.taskManager ? 
+            workflowTasks: workflowOutput.taskManager ?
               convertLegacyTasks(workflowOutput.taskManager.getAllTasks()).map(t => ({
                 id: t.id,
                 title: t.title,
@@ -1690,25 +1693,65 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
               }))
               : undefined,
           } as Message;
-          
+
+          console.log('📝 [Gateway Computer Use] Final summary message prepared:', {
+            id: finalSummaryMessage.id,
+            role: finalSummaryMessage.role,
+            contentLength: finalSummaryMessage.content.length,
+            hasSummarization: !!finalSummaryMessage.summarization,
+            hasExecutionTrajectory: !!finalSummaryMessage.executionTrajectory,
+            contentPreview: finalSummaryMessage.content.substring(0, 100) + '...'
+          });
+
           // Use @ai-sdk-tools/store API correctly - just push the message
           // The store will handle state updates
-          pushMessage(finalSummaryMessage);
-          
+           try {
+             pushMessage(finalSummaryMessage);
+           } catch (error) {
+             console.error('❌ [Gateway Computer Use] Failed to push final summary message:', error);
+             // Fallback: try again with a slight delay
+             setTimeout(() => pushMessage(finalSummaryMessage), 100);
+           }
+
+          // Scroll to bottom to ensure the summary is visible
+          setTimeout(() => {
+            const chatContainer = document.querySelector('[data-testid="chat-messages"]');
+            if (chatContainer) {
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+              console.log('📜 [Gateway Computer Use] Scrolled to bottom to show summary');
+            } else {
+              // Fallback: scroll the main conversation area
+              const conversation = document.querySelector('[class*="Conversation"]');
+              if (conversation) {
+                conversation.scrollTop = conversation.scrollHeight;
+                console.log('📜 [Gateway Computer Use] Scrolled conversation to bottom');
+              }
+            }
+          }, 100);
+
+          // Verify message was added
+          console.log('📝 [Gateway Computer Use] Current messages count after push:', messages.length + 1);
           console.log('✅ [Gateway Computer Use] Final summary message pushed to UI');
         } else {
-          console.warn('⚠️ [Gateway Computer Use] No summary to display', {
+          console.warn('⚠️ [Gateway Computer Use] Summarization failed or missing', {
             hasSummarization: !!workflowOutput.summarization,
             summarizationSuccess: workflowOutput.summarization?.success,
             summaryLength: workflowOutput.summarization?.summary?.length || 0,
+            error: workflowOutput.summarization?.error,
           });
-          
-          // If no summary, at least show a completion message
+
+          // Always show a completion message, even if summarization failed
+          const completionContent = workflowOutput.summarization?.summary
+            ? `---\n## Summary & Next Steps\n\n${workflowOutput.summarization.summary}\n\n*Note: Summary generation encountered issues but completed.*`
+            : `✅ **Workflow Complete**\n\nExecution finished successfully with ${workflowOutput.executionTrajectory.length} step(s).\n\n**Final URL**: ${workflowOutput.finalUrl || 'N/A'}\n\n*Note: Detailed summary not available (You.com API key not configured).*`;
+
           pushMessage({
             id: `completion-${Date.now()}`,
             role: 'assistant',
-            content: `✅ **Workflow Complete**\n\nExecution finished successfully with ${workflowOutput.executionTrajectory.length} step(s).\n\n**Final URL**: ${workflowOutput.finalUrl || 'N/A'}`,
+            content: completionContent,
+            summarization: workflowOutput.summarization,
             executionTrajectory: workflowOutput.executionTrajectory,
+            pageContext: workflowOutput.pageContext,
             workflowMetadata: {
               workflowId: workflowOutput.metadata?.workflowId,
               totalDuration: workflowOutput.totalDuration,
@@ -1891,7 +1934,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
     };
 
     const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    pushMessage(userMessage);
     setIsLoading(true);
     setIsUserScrolled(false); // Reset scroll state when user sends message
 
@@ -2074,15 +2117,11 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
       if (error.name !== 'AbortError') {
         // Show detailed error message to user
         const errorDetails = error?.stack || JSON.stringify(error, null, 2);
-        const filteredMessages = messages.filter(m => m.content !== '');
-        setMessages([
-          ...filteredMessages,
-          {
-            id: Date.now().toString(),
-            role: 'assistant',
-            content: `Error: ${error.message}\n\nDetails:\n\`\`\`\n${errorDetails}\n\`\`\``,
-          },
-        ]);
+        pushMessage({
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `Error: ${error.message}\n\nDetails:\n\`\`\`\n${errorDetails}\n\`\`\``,
+        });
       }
       setIsLoading(false);
     }
@@ -2103,7 +2142,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
 
   // Auto-scroll to bottom when messages change (unless user scrolled up)
   useEffect(() => {
-    if (!isUserScrolled) {
+    if (!isUserScrolled && Array.isArray(messages) && messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isUserScrolled]);
@@ -2190,7 +2229,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         <div className="flex-1 overflow-hidden">
           <Conversation className="h-full">
             <ConversationContent className="h-full">
-              {messages.length === 0 ? (
+              {(!Array.isArray(messages) || messages.length === 0) ? (
                 <div className="flex h-full items-center justify-center">
                   <div className="welcome-message text-center">
                     <h2 className="mb-4 text-2xl font-bold text-foreground">How can I help you today?</h2>
@@ -2199,14 +2238,30 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                 </div>
               ) : (
                 <>
-                  {messages.map((message, index) => {
+                  {(Array.isArray(messages) ? messages : []).map((message, index) => {
+                    // Debug logging for message rendering
+                    if (message.content?.includes('Summary & Next Steps')) {
+                      console.log('🎨 [UI] Rendering summary message:', {
+                        id: message.id,
+                        role: message.role,
+                        contentLength: message.content.length,
+                        hasSummarization: !!message.summarization,
+                        hasWorkflowTasks: !!message.workflowTasks
+                      });
+                    }
+
                     // Filter out intermediate reasoning updates - they clutter the UI
                     if (message.role === 'assistant' && message.content.includes('💭 **Reasoning Update**')) {
                       return null;
                     }
 
+                    // Never filter out summary messages - always show them
+                    if (message.content?.includes('Summary & Next Steps')) {
+                      console.log('🎯 [UI] Ensuring summary message is visible');
+                    }
+
                     const isStepMessage = message.role === 'assistant' && (
-                      message.content.includes('**Step') || 
+                      message.content.includes('**Step') ||
                       message.content.includes('Planning Phase') ||
                       message.content.includes('Planning Complete')
                     );

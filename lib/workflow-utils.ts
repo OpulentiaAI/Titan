@@ -18,7 +18,7 @@
  * - Provides metadata helpers
  */
 
-import { logEvent } from './braintrust';
+import { logEvent } from './braintrust.ts';
 
 // Error classes compatible with Vercel Workflow SDK
 // Browser extension compatible implementations

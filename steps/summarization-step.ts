@@ -2,8 +2,8 @@
 // Feature flag: useYouAdvancedAgent (deprecated) vs useAiSdkToolCalls (default)
 
 import type { SummarizationStepOutput } from '../schemas/workflow-schemas';
-import { summarizerDebug } from '../lib/debug-logger';
-import { isFeatureEnabled } from '../lib/feature-flags';
+import { summarizerDebug } from '../lib/debug-logger.ts';
+import { isFeatureEnabled } from '../lib/feature-flags.ts';
 
 interface SummarizationStepInput {
   youApiKey: string;

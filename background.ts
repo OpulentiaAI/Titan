@@ -13,6 +13,119 @@ const memory: BrowserMemory = {
   sessionData: {}
 };
 
+// Telemetry store for tracking tool execution
+interface TelemetryEvent {
+  toolName: string;
+  timestamp: number;
+  duration: number;
+  success: boolean;
+  error?: string;
+  parameters?: any;
+  tabId?: number;
+}
+
+const telemetryStore: {
+  events: TelemetryEvent[];
+  stats: {
+    totalNavigations: number;
+    successfulNavigations: number;
+    failedNavigations: number;
+    averageDuration: number;
+  };
+} = {
+  events: [],
+  stats: {
+    totalNavigations: 0,
+    successfulNavigations: 0,
+    failedNavigations: 0,
+    averageDuration: 0
+  }
+};
+
+// Helper function to get active tab with retry logic
+async function getActiveTabWithRetry(maxRetries = 3, delayMs = 100): Promise<chrome.tabs.Tab | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Get the currently focused window with windowTypes to exclude devtools
+      const currentWindow = await chrome.windows.getLastFocused({
+        populate: true,
+        windowTypes: ['normal']
+      });
+
+      if (!currentWindow || !currentWindow.tabs) {
+        if (attempt === maxRetries) {
+          console.warn('[getActiveTabWithRetry] No focused window found after all retries');
+          return null;
+        }
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // Get the active AND highlighted tab (the one that's actually visible to the user)
+      let activeTab = currentWindow.tabs.find(tab => tab.active === true && tab.highlighted === true);
+
+      // Fallback to just active if highlighted not found
+      if (!activeTab) {
+        activeTab = currentWindow.tabs.find(tab => tab.active === true);
+      }
+
+      if (activeTab) {
+        return activeTab;
+      }
+
+      if (attempt === maxRetries) {
+        console.warn('[getActiveTabWithRetry] No active tab found after all retries');
+        return null;
+      }
+
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    } catch (error) {
+      console.warn(`[getActiveTabWithRetry] Attempt ${attempt}/${maxRetries} failed:`, error);
+      if (attempt === maxRetries) {
+        console.error('[getActiveTabWithRetry] All attempts failed');
+        return null;
+      }
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  return null;
+}
+
+// Function to record telemetry
+function recordTelemetry(event: Omit<TelemetryEvent, 'timestamp'>): void {
+  const telemetryEvent: TelemetryEvent = {
+    ...event,
+    timestamp: Date.now()
+  };
+
+  telemetryStore.events.push(telemetryEvent);
+
+  // Keep only last 1000 events to prevent memory issues
+  if (telemetryStore.events.length > 1000) {
+    telemetryStore.events.shift();
+  }
+
+  // Update stats
+  telemetryStore.stats.totalNavigations++;
+  if (event.success) {
+    telemetryStore.stats.successfulNavigations++;
+  } else {
+    telemetryStore.stats.failedNavigations++;
+  }
+
+  // Calculate running average
+  const successfulEvents = telemetryStore.events.filter(e => e.success);
+  if (successfulEvents.length > 0) {
+    telemetryStore.stats.averageDuration =
+      successfulEvents.reduce((sum, e) => sum + e.duration, 0) / successfulEvents.length;
+  }
+
+  // Log telemetry for debugging
+  console.log(`[TELEMETRY] ${event.toolName}: ${event.success ? 'SUCCESS' : 'FAILURE'} (${event.duration}ms)`,
+    event.error ? `Error: ${event.error}` : '');
+}
+
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error: Error) => console.error(error));
@@ -61,15 +174,177 @@ chrome.storage.local.get('browserMemory', (result) => {
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   // Get current tab info
   if (request.type === 'GET_TAB_INFO') {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        sendResponse({
-          url: tabs[0].url,
-          title: tabs[0].title,
-          id: tabs[0].id
-        });
+    (async () => {
+      try {
+        const activeTab = await getActiveTabWithRetry();
+        if (activeTab) {
+          sendResponse({
+            url: activeTab.url,
+            title: activeTab.title,
+            id: activeTab.id
+          });
+        } else {
+          sendResponse({ error: 'No active tab found' });
+        }
+      } catch (error) {
+        console.error('[GET_TAB_INFO] Error:', error);
+        sendResponse({ error: 'Failed to get tab info' });
       }
-    });
+    })();
+    return true;
+  }
+
+  // Generic tool execution router for sidepanel/workflow
+  if (request.type === 'EXECUTE_TOOL') {
+    (async () => {
+      try {
+        const toolName: string = request.toolName;
+        // Support both `parameters` and `params` from different callers
+        const params: any = request.parameters || request.params || {};
+
+        // Helper to get active tab id with retry logic
+        const getActiveTabId = async (): Promise<number | null> => {
+          const activeTab = await getActiveTabWithRetry();
+          return activeTab?.id ?? null;
+        };
+
+        if (toolName === 'navigate') {
+          const startTime = Date.now();
+          const url: string | undefined = params.url || params.target || params.href;
+          const tabId = await getActiveTabId();
+
+          try {
+            if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) {
+              const duration = Date.now() - startTime;
+              recordTelemetry({
+                toolName: 'navigate',
+                duration,
+                success: false,
+                error: 'Invalid or missing URL for navigate',
+                parameters: { url, hasUrl: !!url, protocol: url?.split('://')[0] },
+                tabId: tabId || undefined
+              });
+              sendResponse({ success: false, error: 'Invalid or missing URL for navigate' });
+              return;
+            }
+
+            if (!tabId) {
+              const duration = Date.now() - startTime;
+              recordTelemetry({
+                toolName: 'navigate',
+                duration,
+                success: false,
+                error: 'No active tab found',
+                parameters: { url },
+                tabId: undefined
+              });
+              sendResponse({ success: false, error: 'No active tab found' });
+              return;
+            }
+
+            await chrome.tabs.update(tabId, { url });
+            const duration = Date.now() - startTime;
+            recordTelemetry({
+              toolName: 'navigate',
+              duration,
+              success: true,
+              parameters: { url, tabId },
+              tabId
+            });
+            sendResponse({ success: true, url });
+            return;
+          } catch (error) {
+            const duration = Date.now() - startTime;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            recordTelemetry({
+              toolName: 'navigate',
+              duration,
+              success: false,
+              error: errorMessage,
+              parameters: { url, tabId },
+              tabId: tabId || undefined
+            });
+            sendResponse({ success: false, error: errorMessage });
+            return;
+          }
+        }
+
+        if (toolName === 'getPageContext') {
+          const tabId = await getActiveTabId();
+          if (!tabId) {
+            sendResponse({ success: false, error: 'No active tab found' });
+            return;
+          }
+          await ensureContentScript(tabId);
+          const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_CONTEXT' });
+          sendResponse(response);
+          return;
+        }
+
+        // Map tool names to content-script actions
+        const actionMap: Record<string, string> = {
+          click: 'click',
+          click_at: 'click',
+          clickElement: 'click',
+          type: 'fill',
+          type_text: 'fill',
+          type_text_at: 'fill',
+          typeText: 'fill',
+          scroll: 'scroll',
+          scroll_down: 'scroll',
+          scroll_up: 'scroll',
+          pressKey: 'press_key',
+          press_key: 'press_key',
+          keyCombo: 'key_combination',
+          key_combination: 'key_combination',
+          dragDrop: 'drag_drop',
+          drag_drop: 'drag_drop',
+          keyboardType: 'keyboard_type',
+          clearInput: 'clear_input',
+          hover: 'hover',
+          mouseMove: 'mouse_move',
+          wait: 'wait',
+          wait_for: 'wait',
+          getBrowserHistory: 'get_browser_history',
+        };
+
+        if (toolName === 'screenshot') {
+          // Reuse the existing screenshot flow by delegating
+          chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (resp) => {
+            sendResponse(resp);
+          });
+          return true; // Keep channel open for async response
+        }
+
+        const action = actionMap[toolName] || toolName;
+        const tabId = await getActiveTabId();
+        if (!tabId) {
+          sendResponse({ success: false, error: 'No active tab found' });
+          return;
+        }
+        await ensureContentScript(tabId);
+
+        // Build EXECUTE_ACTION payload for content script
+        const payload = {
+          type: 'EXECUTE_ACTION',
+          action,
+          target: params.selector || params.target,
+          selector: params.selector,
+          value: params.value || params.text,
+          coordinates: params.coordinates,
+          direction: params.direction,
+          amount: params.amount,
+          key: params.key,
+          keys: params.keys,
+          destination: params.destination,
+        };
+
+        const response = await chrome.tabs.sendMessage(tabId, payload);
+        sendResponse(response);
+      } catch (error) {
+        sendResponse({ success: false, error: (error as Error).message });
+      }
+    })();
     return true;
   }
 
@@ -92,6 +367,25 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   // Get browser memory
   if (request.type === 'GET_MEMORY') {
     sendResponse({ memory });
+    return true;
+  }
+
+  // Get telemetry data
+  if (request.type === 'GET_TELEMETRY') {
+    sendResponse({ telemetry: telemetryStore });
+    return true;
+  }
+
+  // Clear telemetry data
+  if (request.type === 'CLEAR_TELEMETRY') {
+    telemetryStore.events = [];
+    telemetryStore.stats = {
+      totalNavigations: 0,
+      successfulNavigations: 0,
+      failedNavigations: 0,
+      averageDuration: 0
+    };
+    sendResponse({ success: true });
     return true;
   }
 
@@ -118,10 +412,10 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'GET_PAGE_CONTEXT') {
     (async () => {
       try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tabs[0]?.id) {
-          await ensureContentScript(tabs[0].id);
-          const response = await chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_PAGE_CONTEXT' });
+        const activeTab = await getActiveTabWithRetry();
+        if (activeTab?.id) {
+          await ensureContentScript(activeTab.id);
+          const response = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_PAGE_CONTEXT' });
           sendResponse(response); // Return response directly, not wrapped
         } else {
           sendResponse({ success: false, error: 'No active tab found' });
@@ -137,10 +431,10 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'EXECUTE_ACTION') {
     (async () => {
       try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tabs[0]?.id) {
-          await ensureContentScript(tabs[0].id);
-          const response = await chrome.tabs.sendMessage(tabs[0].id, {
+        const activeTab = await getActiveTabWithRetry();
+        if (activeTab?.id) {
+          await ensureContentScript(activeTab.id);
+          const response = await chrome.tabs.sendMessage(activeTab.id, {
             type: 'EXECUTE_ACTION',
             action: request.action,
             target: request.target,
@@ -264,9 +558,9 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'NAVIGATE') {
     (async () => {
       try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tabs[0]?.id) {
-          await chrome.tabs.update(tabs[0].id, { url: request.url });
+        const activeTab = await getActiveTabWithRetry();
+        if (activeTab?.id) {
+          await chrome.tabs.update(activeTab.id, { url: request.url });
           sendResponse({ success: true, url: request.url });
         } else {
           sendResponse({ success: false, error: 'No active tab found' });

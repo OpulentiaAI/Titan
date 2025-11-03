@@ -2,7 +2,7 @@
 // Inspired by DeepResearch: https://jina.ai/news/submodular-optimization-for-diverse-query-generation-in-deepresearch/
 // Implements lazy greedy algorithm to select diverse yet relevant query variations
 
-import { logEvent } from './braintrust';
+import { logEvent } from './braintrust.ts';
 
 /**
  * Priority Queue implementation for efficient greedy selection
@@ -442,4 +442,3 @@ export async function expandQueryWithSubmodularOptimization(
     diversityScore,
   };
 }
-

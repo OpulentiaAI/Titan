@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test:navigation": "tsx tests/navigation.test.ts",
+    "test:e2e": "tsx tests/e2e-navigation.test.ts",
     "optimize:setup": "cd prompt-optimization && ./setup-optimization.sh",
     "optimize:planner": "cd prompt-optimization/planner && PORT=3001 npx dspyground dev",
     "optimize:evaluator": "cd prompt-optimization/evaluator && npx dspyground dev",
@@ -25,7 +27,8 @@
     "optimize:demo": "npx tsx prompt-optimization/examples/example-hybrid-workflow.ts",
     "optimize:arbor-gepa": "npx tsx prompt-optimization/examples/example-hybrid-workflow.ts",
     "optimize:samples": "echo 'Create my-tools.ts first - see QUICKSTART.md' && exit 1",
-    "optimize:gepa-only": "echo 'Create gepa-only.ts first - see QUICKSTART.md' && exit 1"
+    "optimize:gepa-only": "echo 'Create gepa-only.ts first - see QUICKSTART.md' && exit 1",
+    "test:navigation:dist": "node tests/navigation.dist.test.js"
   },
   "dependencies": {
     "@ai-sdk-tools/agents": "^1.0.0",
@@ -90,6 +93,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.21",
+    "chrome-remote-interface": "^0.33.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dspyground": "^0.3.10",

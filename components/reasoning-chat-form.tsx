@@ -161,8 +161,8 @@ export function ReasoningChatForm() {
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
-        {/* Prompt input - ChatGPT-style */}
-        <div className="relative mx-auto flex w-full max-w-screen-md items-end rounded-3xl bg-white/5 dark:bg-white/5 shadow-sm transition-shadow hover:shadow-md mt-4">
+        {/* Prompt input - ChatGPT-style with backdrop blur and subtle border */}
+        <div className="relative mx-auto flex w-full max-w-screen-md items-end rounded-3xl bg-white/5 dark:bg-white/5 backdrop-blur-sm shadow-sm transition-shadow hover:shadow-md mt-4 overflow-hidden ring-1 ring-white/10 focus-within:ring-white/20">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -177,7 +177,7 @@ export function ReasoningChatForm() {
             }}
             placeholder="What would you like me to think about today?"
             disabled={status === "streaming"}
-            className="h-12 flex-grow resize-none bg-transparent px-4 py-3 text-sm text-white dark:text-white outline-none border-0 placeholder:text-white/50 dark:placeholder:text-white/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-12 flex-grow resize-none bg-transparent px-4 py-3 text-sm text-black dark:text-white outline-none border-0 ring-0 placeholder:text-black/50 dark:placeholder:text-white/50 focus-visible:ring-0 focus-visible:ring-offset-0"
             style={{ maxHeight: '100px', overflowY: 'auto' }}
             aria-label="Prompt input"
           />

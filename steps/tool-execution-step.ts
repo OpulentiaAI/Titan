@@ -2,7 +2,7 @@
 // 'use step' directive makes this a durable, resumable step with built-in retries
 
 import type { ToolExecutionStepOutput } from '../schemas/workflow-schemas';
-import { logEvent, logToolExecution } from '../lib/braintrust';
+import { logEvent, logToolExecution } from '../lib/braintrust.ts';
 
 /**
  * Tool Execution Step - Executes a single browser tool
@@ -72,4 +72,3 @@ try {
      };
    }
 }
-

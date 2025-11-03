@@ -2,6 +2,7 @@
 // Displays multi-step execution with collapsible layout and visual hierarchy
 
 import React from 'react';
+import { cn } from '@/lib/utils';
 import {
   Steps,
   StepsTrigger,
@@ -108,14 +109,14 @@ export const EnhancedStepDisplay: React.FC<EnhancedStepDisplayProps> = ({
   }
 
   return (
-    <div className={className}>
+    <div className={cn("rounded-xl border border-slate-200/60 bg-white/80 p-3 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60", className)}>
       {/* Planning Phase */}
       {planningSteps.length > 0 && (
-        <Steps defaultOpen={true} className="mb-4">
-          <StepsTrigger leftIcon={<span>🧠</span>}>
+        <Steps defaultOpen={true} className="mb-3">
+          <StepsTrigger className="text-foreground" leftIcon={<span>🧠</span>}>
             Planning Phase
           </StepsTrigger>
-          <StepsContent>
+          <StepsContent bar={<StepsBar className="bg-slate-300/50 dark:bg-white/15" /> }>
             {planningSteps.map((step, idx) => (
               <StepsItem key={idx}>
                 <div className="flex items-start gap-2">
@@ -143,10 +144,10 @@ export const EnhancedStepDisplay: React.FC<EnhancedStepDisplayProps> = ({
       {/* Execution Steps */}
       {workflowSteps.length > 0 && (
         <Steps defaultOpen={true}>
-          <StepsTrigger leftIcon={<span>⚙️</span>}>
+          <StepsTrigger className="text-foreground" leftIcon={<span>⚙️</span>}>
             Execution Steps ({workflowSteps.length} steps)
           </StepsTrigger>
-          <StepsContent>
+          <StepsContent bar={<StepsBar className="bg-slate-300/50 dark:bg-white/15" /> }>
             {workflowSteps.map((step, idx) => (
               <StepsItem key={idx}>
                 <div className="flex items-start gap-2">
@@ -188,4 +189,3 @@ export const EnhancedStepDisplay: React.FC<EnhancedStepDisplayProps> = ({
     </div>
   );
 };
-

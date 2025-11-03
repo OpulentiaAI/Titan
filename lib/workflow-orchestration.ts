@@ -2,7 +2,7 @@
 // Integrates DeepResearch-inspired efficiency patterns into existing architecture
 // Fully compatible with browser-automation-workflow.ts
 
-import { logEvent, logStepProgress } from './braintrust';
+import { logEvent, logStepProgress } from './braintrust.ts';
 import {
   expandQueryForBrowserAutomation,
   evaluateBrowserAutomationResult,
@@ -12,7 +12,9 @@ import {
   enhancePlanningWithOrthogonality,
   SmartCache,
   latencyOptimizer,
-} from './orchestration-enhancements';
+} from './orchestration-enhancements.ts';
+import { expandQueryWithSubmodularOptimization } from './submodular-query-optimization.ts';
+import { orchestrationDebug } from './debug-logger.ts';
 
 /**
  * Enhanced Planning with Query Expansion
@@ -379,4 +381,3 @@ export async function evaluateFinalResult(
     improvementSuggestions: improvementSuggestions.length > 0 ? improvementSuggestions : undefined,
   };
 }
-

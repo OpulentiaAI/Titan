@@ -4,7 +4,7 @@
 
 import type { StopCondition } from 'ai';
 import type { Message } from '../types';
-import { logEvent, logStepProgress, logToolExecution } from './braintrust';
+import { logEvent, logStepProgress, logToolExecution } from './braintrust.ts';
 
 /**
  * Custom Stop Conditions
@@ -535,4 +535,3 @@ export function createEnhancedAgentConfig(config: AgentEnhancementConfig) {
       : undefined,
   };
 }
-

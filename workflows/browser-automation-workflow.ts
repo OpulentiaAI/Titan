@@ -1,10 +1,3 @@
-// Browser Automation Workflow - Main orchestration using Workflow patterns
-// Uses 'use workflow' directive for durable, resumable execution
-// Allows nondeterminism through agent action space while ensuring durable execution
-
-// Note: In browser extension context, directives are not transformed by webpack/turbopack
-// but provide semantic meaning and prepare for future Next.js migration
-
 import type {
   BrowserAutomationWorkflowInput,
   BrowserAutomationWorkflowOutput,
@@ -13,10 +6,10 @@ import type {
   StreamingStepOutput,
   SummarizationStepOutput,
 } from '../schemas/workflow-schemas';
-import { planningStep } from '../steps/planning-step';
-import { pageContextStep } from '../steps/page-context-step';
-import { streamingStep } from '../steps/streaming-step';
-import { summarizationStep } from '../steps/summarization-step';
+import { planningStep } from '../steps/planning-step.ts';
+import { pageContextStep } from '../steps/page-context-step.ts';
+import { streamingStep } from '../steps/streaming-step.ts';
+import { summarizationStep } from '../steps/summarization-step.ts';
 import type { Message, PageContext } from '../types';
 import { tool } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -26,18 +19,19 @@ import {
   condition,
   startWorkflow,
   endWorkflow,
-} from '../lib/workflow-utils';
-import { logEvent, logStepProgress } from '../lib/braintrust';
+} from '../lib/workflow-utils.ts';
+import { logEvent, logStepProgress } from '../lib/braintrust.ts';
 import {
   enhancedPlanningStep,
   EnhancedExecutionManager,
   executeStepsInParallel,
   aggregateExecutionResults,
   evaluateFinalResult,
-} from '../lib/workflow-orchestration';
-import { workflowDebug, toolDebug, orchestrationDebug } from '../lib/debug-logger';
-import { validatePreflight, logPreflightResults } from '../lib/preflight-validation';
-import { TaskManager, createWorkflowTaskManager, convertLegacyTasks } from '../lib/task-manager';
+} from '../lib/workflow-orchestration.ts';
+import { workflowDebug, toolDebug, orchestrationDebug } from '../lib/debug-logger.ts';
+import { validatePreflight, logPreflightResults } from '../lib/preflight-validation.ts';
+import { TaskManager, createWorkflowTaskManager, convertLegacyTasks } from '../lib/task-manager.ts';
+import type { ErrorAnalysisResponse } from '../lib/error-analyzer.ts';
 
 type PlanStep = {
   step: number;
@@ -309,6 +303,7 @@ export async function browserAutomationWorkflow(
   
   // Declare streaming variable before try block for error handling
   let streaming: StreamingStepOutput | undefined;
+  let workflowErrorAnalysis: ErrorAnalysisResponse | undefined;
   
   try {
 // ============================================
@@ -336,16 +331,43 @@ export async function browserAutomationWorkflow(
     // Execute enhanced planning and pre-search in parallel for faster execution
     // Enhanced planning includes query expansion and orthogonality analysis
     const planningPromise = useStep('planning', async () => {
-      // Use enhanced planning with query expansion
-      return await enhancedPlanningStep(
-        input.userQuery,
-        async (query) => {
-          // Temporarily override query for planning
-          const modifiedInput = { ...input, userQuery: query };
-          return await planningStep(modifiedInput);
-        },
-        modelName
-      );
+      const executePlanner = async (query: string) => {
+        const modifiedInput = { ...input, userQuery: query };
+        const planningOutput = await planningStep(modifiedInput);
+        return {
+          ...planningOutput,
+          planSteps: planningOutput.plan.steps,
+        };
+      };
+
+      try {
+        const enhancedResult = await enhancedPlanningStep(
+          input.userQuery,
+          executePlanner,
+          modelName
+        );
+
+        if (enhancedResult?.plan?.steps?.length) {
+          workflowDebug.debug('Enhanced planning produced steps', {
+            stepCount: enhancedResult.plan.steps.length,
+          });
+          return enhancedResult;
+        }
+
+        workflowDebug.warn('Enhanced planning returned empty steps, falling back to basic planner', {
+          stepCount: enhancedResult?.plan?.steps?.length || 0,
+        });
+      } catch (enhancedError: any) {
+        workflowDebug.warn('Enhanced planning failed, falling back to basic planner', {
+          error: enhancedError?.message,
+        });
+      }
+
+      const fallbackResult = await executePlanner(input.userQuery);
+      workflowDebug.info('Basic planner used as fallback', {
+        stepCount: fallbackResult.plan.steps.length,
+      });
+      return fallbackResult;
     }, {
       retry: 1, // Retry once on failure
       timeout: 45000, // 45s timeout for planning step
@@ -446,6 +468,11 @@ export async function browserAutomationWorkflow(
       },
     };
     
+    console.log('🧠 [WORKFLOW] Normalized plan steps', {
+      stepCount: planning.plan.steps.length,
+      actions: planning.plan.steps.map((step: any) => step.action),
+    });
+    
     workflowDebug.info('Planning step completed successfully', {
       stepsCount: planning.plan.steps.length,
       confidence: planning.confidence,
@@ -466,6 +493,22 @@ export async function browserAutomationWorkflow(
       action: 'planning',
       success: planning.confidence > 0.3,
       timestamp: Date.now(),
+    });
+
+    // Populate execSteps from planning output for execution tracking
+    planning.plan.steps.forEach((step: any, index: number) => {
+      execSteps.push({
+        step: index + 1,
+        action: step.action,
+        url: step.target,
+        success: false,
+        target: step.target,
+      });
+    });
+
+    workflowDebug.info('ExecSteps populated from planning', {
+      execStepsCount: execSteps.length,
+      actions: execSteps.map(s => s.action),
     });
 
     const agentMessages: Message[] = [...messages];
@@ -1665,7 +1708,13 @@ export async function browserAutomationWorkflow(
     
     // Mark execution as in progress when streaming starts
     updateWorkflowTasks('execute', 'in_progress', 'Executing browser actions...');
-    
+
+    console.log('🚀 [WORKFLOW] About to call streaming step', {
+      execStepsCount: execSteps.length,
+      execSteps: execSteps.map(s => ({ step: s.step, action: s.action, url: s.url })),
+      agentMessagesCount: agentMessages.length,
+    });
+
     const streaming = await streamingStep({
       model,
       system,
@@ -1738,250 +1787,501 @@ export async function browserAutomationWorkflow(
       ? execSteps[execSteps.length - 1]?.url 
       : (pageContext?.pageContext?.url || 'unknown');
 
-// ============================================
-     // PHASE 6: Summarization Step (AI SDK with Web Search)
-     // ============================================
-     console.log('📊 [SUMMARIZATION] Using AI SDK 6 with agentic reasoning for result analysis');
-     if (hasYouApiKey) {
-       console.log('🌐 [SUMMARIZATION] Web search ENABLED - will use You.com for enhanced context');
-     } else {
-       console.log('💡 [SUMMARIZATION] Running without web search (add You.com API key for enhanced analysis)');
-     }
-     
-     workflowDebug.info('Starting summarization phase', {
-       hasYouApiKey: !!input.settings.youApiKey,
-       stepCount: execSteps.length,
-       useAiSdk: true,
-       useWebSearch: hasYouApiKey,
-     });
-     
-     logStepProgress('browser_automation_workflow', 6, {
-       phase: 'summarization',
-       action: 'generating_summary',
-       has_you_api_key: !!input.settings.youApiKey,
-       use_ai_sdk: true,
-       use_web_search: hasYouApiKey,
-     });
-    let summarization: SummarizationStepOutput | undefined;
-    // Always attempt summarization - use You.com if available, fallback to main AI model
-    try {
-      const objective = context.messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-      const trajectory = execSteps.slice(-50).map(s => 
-        `- step ${s.step}: ${s.action}${s.url ? ` @ ${s.url}` : ''} ${s.success ? '(ok)' : '(failed)'}`
-      ).join('\n') || '- (no actions executed)';
-      const outcome = streaming.fullText.substring(0, 1500);
-      
-      workflowDebug.debug('Summarization inputs prepared', {
-        objectiveLength: objective.length,
-        trajectoryLength: trajectory.length,
-        outcomeLength: outcome.length,
-        stepCount: execSteps.length,
-      });
-      
-      // Create initial summary message for streaming (if enabled)
-      const summaryMessageId = (Date.now() + 2).toString();
-      const shouldStream = !!(input.settings.youApiKey && context.updateLastMessage);
-      
-      if (shouldStream) {
-        // Create placeholder message that will be updated via streaming
-        context.pushMessage({
-          id: summaryMessageId,
-          role: 'assistant',
-          content: '---\n## Summary & Next Steps\n\n*Generating summary...*',
-        });
-      }
-      
-      workflowDebug.debug('Loading cached summarization function');
-      
-      // Use cached summarization for better performance
-      const cacheModule = await import('../lib/cache-utils');
-      const cachedSummarizationRaw = cacheModule?.summarizationStepCached;
-      const cachedSummarizationFn = typeof cachedSummarizationRaw === 'function'
-        ? cachedSummarizationRaw
-        : cachedSummarizationRaw?.execute?.bind(cachedSummarizationRaw);
-      
-      workflowDebug.debug('Calling cached summarization', {
-        hasCachedFunction: !!cachedSummarizationRaw,
-        hasExecutableFunction: !!cachedSummarizationFn,
-        shouldStream,
-        rawType: typeof cachedSummarizationRaw,
+    // ============================================
+    // PHASE 5.75: Trajectory Diagnostics & Decision Gate
+    // ============================================
+    const failedSteps = execSteps.filter((step) => !step.success);
+    const hasFailedSteps = failedSteps.length > 0;
+    const streamingErrored = streaming.finishReason === 'error';
+    const evaluationSuggestsImprove = finalEvaluation?.shouldImprove === true;
+    const shouldAttemptDiagnostics = execSteps.length > 0;
+
+    if (shouldAttemptDiagnostics) {
+      updateWorkflowTasks('analyze', 'in_progress', 'Reviewing execution trajectory...');
+      logStepProgress('browser_automation_workflow', 5.75, {
+        phase: 'trajectory_analysis',
+        action: 'diagnosing_execution',
+        has_failed_steps: hasFailedSteps,
+        streaming_error: streamingErrored,
+        evaluation_suggests_improve: evaluationSuggestsImprove,
       });
 
-      if (!cachedSummarizationFn) {
-        workflowDebug.warn('Cached summarization function unavailable - falling back to direct step execution');
-      }
+      const needsRecovery = hasFailedSteps || streamingErrored || evaluationSuggestsImprove;
 
-      // Add timeout wrapper to prevent hanging (10 seconds max - aggressive timeout)
-      const summarizationWithTimeout = async (fn: () => Promise<any>, timeoutMs = 10000) => {
-        return Promise.race([
-          fn(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`Summarization timed out after ${timeoutMs}ms`)), timeoutMs)
-          )
-        ]);
-      };
-      
-       // Mark summarization as in progress
-       taskManager.startTask('summarize');
+      if (needsRecovery) {
 
-      const summarizationParams = {
-        objective,
-        trajectory,
-        outcome,
-        youApiKey: input.settings.youApiKey || '', // Use empty string if not available - fallback will handle it
-        // Provide fallback model and API key for when You.com fails
-        fallbackModel: model || createOpenAI({ apiKey: input.settings.apiKey })('gpt-4o-mini'),
-        fallbackApiKey: input.settings.apiKey,
-        // Enable streaming for real-time UI updates
-        enableStreaming: shouldStream,
-        updateLastMessage: shouldStream ? context.updateLastMessage : undefined,
-        // Disable finalization by default to reduce latency (can be re-enabled if needed)
-        enableFinalization: false, // Disabled to prevent exponential latency
-        finalizationProvider: input.settings.provider,
-        finalizationModel: input.settings.model,
-        knowledgeItems: execSteps.slice(-20).map(step => ({
-          title: `Step ${step.step}: ${step.action}`,
-          content: step.url || step.target || '',
-          url: step.url,
-        })),
-      };
-
-      let cachedSummaryResult: SummarizationStepOutput;
-      
-      try {
-        if (cachedSummarizationFn) {
-          workflowDebug.debug('Executing cached summarization function');
-          cachedSummaryResult = await summarizationWithTimeout(
-            () => cachedSummarizationFn(summarizationParams) as Promise<SummarizationStepOutput>
-          ) as SummarizationStepOutput;
-        } else {
-          workflowDebug.debug('Executing summarization step directly (no cache)');
-          const { summarizationStep } = await import('../steps/summarization-step');
-          cachedSummaryResult = await summarizationWithTimeout(
-            () => summarizationStep(summarizationParams)
-          ) as SummarizationStepOutput;
-        }
-      } catch (timeoutError: any) {
-        workflowDebug.error('Summarization timed out or failed', {
-          error: timeoutError?.message,
-          errorType: timeoutError?.name,
+        const diaryContext = execSteps.map((step, idx) => {
+          const statusText = step.success ? 'succeeded.' : `failed${step.error ? `: ${step.error}` : '.'}`;
+          const detailParts: string[] = [];
+          if (step.url) detailParts.push(`URL: ${step.url}`);
+          if ((step as any).target) detailParts.push(`Target: ${(step as any).target}`);
+          return `At step ${idx + 1}, you executed **${step.action}**. It ${statusText}${detailParts.length ? ` (${detailParts.join(' | ')})` : ''}`;
         });
-        
-         // Mark summarization as error
-         taskManager.failTask('summarize', 'Timed out after 10s');
-        
-        // Return a minimal summary to allow workflow to complete
-        cachedSummaryResult = {
-          summary: `## Summary\n\nExecution completed successfully. ${execSteps.length} step(s) executed.\n\n*Note: Detailed summary generation timed out.*`,
-          duration: 10000, // Timeout duration (reduced from 30s)
-          success: false,
-          trajectoryLength: trajectory.length,
-          stepCount: execSteps.length,
-        };
-      }
-
-       // Cast the cached result to the expected type
-       summarization = cachedSummaryResult as SummarizationStepOutput;
-       
-       workflowDebug.info('Summarization completed', {
-         success: summarization.success,
-         hasSummary: !!summarization.summary,
-         summaryLength: summarization.summary?.length || 0,
-         duration: summarization.duration,
-         hasError: !!summarization.error,
-       });
-
-        // Mark summarization as completed (or error if failed)
-        if (summarization.success) {
-          taskManager.completeTask('summarize', `Generated in ${(summarization.duration / 1000).toFixed(1)}s`);
-        } else {
-          taskManager.failTask('summarize', 'Summary generation failed');
+        if (streamingErrored) {
+          diaryContext.push('The streaming response ended with an error before completion.');
         }
 
-        // Mark execution as completed
-        taskManager.completeTask('execute', `${execSteps.length} step(s) executed`);
-       
-       if (summarization.success && summarization.summary?.trim()) {
-         workflowDebug.debug('Displaying summarization results', {
-           shouldStream,
-           summaryLength: summarization.summary.length,
-         });
-        
-          // Get final page context for summary message
-          const finalPageContext = await context.getPageContextAfterAction().catch(() => null);
-          
-        // If streaming was used, the content was already updated in real-time
-        // We just need to add the artifacts (summarization, trajectory, pageContext, metadata)
-        if (shouldStream && context.updateLastMessage) {
-          // Streaming path: add artifacts without changing content (already streamed)
-          context.updateLastMessage((msg: any) => {
-            // Only update content if it still shows "Generating..."
-            const shouldUpdateContent = msg.content.includes('*Generating summary...*');
-            return { 
-              ...msg, 
-              content: shouldUpdateContent 
-                ? `---\n## Summary & Next Steps\n\n${summarization.summary}`
-                : msg.content, // Keep streamed content as-is
-            summarization: summarization,
-            executionTrajectory: executionTrajectory.slice(),
-            pageContext: finalPageContext,
-            workflowMetadata: {
-              workflowId,
-              conversationId: input.metadata?.conversationId,
-              totalDuration,
-              finalUrl,
-            },
-              workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+        const evaluatorFeedback = finalEvaluation?.improvementSuggestions?.length
+          ? finalEvaluation.improvementSuggestions.join('; ')
+          : streamingErrored
+            ? 'Streaming ended with an error before the agent produced a final response.'
+            : undefined;
+
+        if (input.settings.apiKey) {
+          try {
+            const { analyzeExecutionFailure } = await import('../lib/error-analyzer');
+            workflowErrorAnalysis = await analyzeExecutionFailure(
+              diaryContext,
+              input.userQuery,
+              streaming.fullText || '(No assistant response captured)',
+              evaluatorFeedback,
+              {
+                provider: input.settings.provider,
+                apiKey: input.settings.apiKey,
+                model: input.settings.model,
+                braintrustApiKey: input.settings.braintrustApiKey,
+              }
+            );
+          } catch (analysisError: any) {
+            workflowDebug.warn('Error analysis failed', analysisError);
+            const fallbackImprovements = finalEvaluation?.improvementSuggestions?.length
+              ? finalEvaluation.improvementSuggestions.map((suggestion: string, idx: number) => `${idx + 1}. ${suggestion}`).join('\n')
+              : '1. Review the execution trajectory and retry the unresolved steps.';
+
+            workflowErrorAnalysis = {
+              recap: `Execution completed with ${execSteps.length} step(s); ${failedSteps.length} reported failure(s).`,
+              blame: analysisError?.message
+                ? `Automatic analysis failed: ${analysisError.message}`
+                : 'Automatic analysis failed before identifying a root cause.',
+              improvement: fallbackImprovements,
             };
-          });
+          }
         } else {
-          // Non-streaming path: push complete message with all artifacts
+          const fallbackImprovements = finalEvaluation?.improvementSuggestions?.length
+            ? finalEvaluation.improvementSuggestions.map((suggestion: string, idx: number) => `${idx + 1}. ${suggestion}`).join('\n')
+            : '1. Review the execution trajectory and retry the unresolved steps.';
+
+          workflowErrorAnalysis = {
+            recap: `Execution completed with ${execSteps.length} step(s); ${failedSteps.length} reported failure(s).`,
+            blame: 'Automated diagnostics skipped because no API key was available for the analyzer.',
+            improvement: fallbackImprovements,
+          };
+        }
+
+        updateWorkflowTasks('analyze', 'completed', 'Issues detected – review diagnostics');
+        const diagnosticsLines: string[] = [
+          '---',
+          '## Workflow Diagnostics',
+          '',
+          '**Status:** Recovery cycle triggered — agent preparing adjustments',
+          '',
+        ];
+
+        if (workflowErrorAnalysis) {
+          diagnosticsLines.push(
+            '### Recap',
+            workflowErrorAnalysis.recap,
+            '',
+            '### Root Cause',
+            workflowErrorAnalysis.blame,
+            '',
+            '### Recommended Next Actions',
+            workflowErrorAnalysis.improvement,
+            ''
+          );
+        } else {
+          diagnosticsLines.push(
+            'Automated diagnostics were unavailable. Review the execution log and rerun the unresolved steps.',
+            ''
+          );
+        }
+
+        if (finalEvaluation?.improvementSuggestions?.length) {
+          diagnosticsLines.push(
+            'Additional evaluator feedback:',
+            finalEvaluation.improvementSuggestions.map((suggestion: string, idx: number) => `${idx + 1}. ${suggestion}`).join('\n'),
+            ''
+          );
+        }
+
+        if (!hasYouApiKey) {
+          diagnosticsLines.push(
+            '_Web search summarization is disabled (You.com API key not configured)._',
+            ''
+          );
+        }
+
+        diagnosticsLines.push(
+          'The agent will apply these corrections automatically before continuing execution.'
+        );
+
+        const diagnosticsContent = diagnosticsLines.join('\n').trim();
+
+        context.pushMessage({
+          id: `diagnostics-${Date.now()}`,
+          role: 'assistant',
+          content: diagnosticsContent,
+          workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+          executionTrajectory: executionTrajectory.slice(),
+          workflowMetadata: {
+            workflowId,
+            conversationId: input.metadata?.conversationId,
+            totalDuration,
+            finalUrl,
+          },
+        });
+
+        logEvent('browser_automation_workflow_diagnostics', {
+          workflow_id: workflowId,
+          has_failed_steps: hasFailedSteps,
+          streaming_error: streamingErrored,
+          evaluation_suggests_improve: evaluationSuggestsImprove,
+          improvement_suggestions: finalEvaluation?.improvementSuggestions,
+        });
+      } else {
+        updateWorkflowTasks('analyze', 'completed', 'Trajectory looks healthy');
+      }
+    } else {
+      updateWorkflowTasks('analyze', 'completed', 'No tool executions to analyze');
+    }
+
+    // ============================================
+    // PHASE 6: Summarization Step (AI SDK with Web Search)
+    // ============================================
+    let summarization: SummarizationStepOutput | undefined;
+      console.log('📊 [SUMMARIZATION] Using AI SDK 6 with agentic reasoning for result analysis');
+      if (hasYouApiKey) {
+        console.log('🌐 [SUMMARIZATION] Web search ENABLED - will use You.com for enhanced context');
+      } else {
+        console.log('💡 [SUMMARIZATION] Running without web search (add You.com API key for enhanced analysis)');
+      }
+     
+       workflowDebug.info('Starting summarization phase', {
+         hasYouApiKey: !!input.settings.youApiKey,
+         stepCount: execSteps.length,
+         useAiSdk: true,
+         useWebSearch: hasYouApiKey,
+       });
+     
+       logStepProgress('browser_automation_workflow', 6, {
+         phase: 'summarization',
+         action: 'generating_summary',
+         has_you_api_key: !!input.settings.youApiKey,
+         use_ai_sdk: true,
+         use_web_search: hasYouApiKey,
+       });
+      // Always attempt summarization - use You.com if available, fallback to main AI model
+      try {
+        const objective = context.messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+        const trajectory = execSteps.slice(-50).map(s => 
+          `- step ${s.step}: ${s.action}${s.url ? ` @ ${s.url}` : ''} ${s.success ? '(ok)' : '(failed)'}`
+        ).join('\n') || '- (no actions executed)';
+        const outcome = streaming.fullText?.substring(0, 1500) || '';
+      
+        workflowDebug.debug('Summarization inputs prepared', {
+          objectiveLength: objective.length,
+          trajectoryLength: trajectory.length,
+          outcomeLength: outcome.length,
+          stepCount: execSteps.length,
+        });
+      
+        // Create initial summary message for streaming (if enabled)
+        const summaryMessageId = (Date.now() + 2).toString();
+        const shouldStream = !!(input.settings.youApiKey && context.updateLastMessage);
+
+        if (shouldStream) {
           context.pushMessage({
             id: summaryMessageId,
             role: 'assistant',
-            content: `---\n## Summary & Next Steps\n\n${summarization.summary}`,
-                summarization: summarization,
+            content: '---\n## Summary & Next Steps\n\n*Generating summary...*',
+          });
+        }
+      
+        workflowDebug.debug('Loading cached summarization function');
+      
+        // Use cached summarization for better performance
+        const cacheModule = await import('../lib/cache-utils');
+        const cachedSummarizationRaw = cacheModule?.summarizationStepCached;
+        const cachedSummarizationFn = typeof cachedSummarizationRaw === 'function'
+          ? cachedSummarizationRaw
+          : cachedSummarizationRaw?.execute?.bind(cachedSummarizationRaw);
+      
+        workflowDebug.debug('Calling cached summarization', {
+          hasCachedFunction: !!cachedSummarizationRaw,
+          hasExecutableFunction: !!cachedSummarizationFn,
+          shouldStream,
+          rawType: typeof cachedSummarizationRaw,
+        });
+
+        if (!cachedSummarizationFn) {
+          workflowDebug.warn('Cached summarization function unavailable - falling back to direct step execution');
+        }
+
+        // Add timeout wrapper to prevent hanging (10 seconds max - aggressive timeout)
+        const summarizationWithTimeout = async (fn: () => Promise<any>, timeoutMs = 10000) => {
+          return Promise.race([
+            fn(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error(`Summarization timed out after ${timeoutMs}ms`)), timeoutMs)
+            )
+          ]);
+        };
+      
+         // Mark summarization as in progress
+         taskManager.startTask('summarize');
+
+        const summarizationParams = {
+          objective,
+          trajectory,
+          outcome,
+          youApiKey: input.settings.youApiKey || '', // Use empty string if not available - fallback will handle it
+          // Provide fallback model and API key for when You.com fails
+          fallbackModel: model || createOpenAI({ apiKey: input.settings.apiKey })('gpt-4o-mini'),
+          fallbackApiKey: input.settings.apiKey,
+          // Enable streaming for real-time UI updates
+          enableStreaming: shouldStream,
+          updateLastMessage: shouldStream ? context.updateLastMessage : undefined,
+          // Disable finalization by default to reduce latency (can be re-enabled if needed)
+          enableFinalization: false, // Disabled to prevent exponential latency
+          finalizationProvider: input.settings.provider,
+          finalizationModel: input.settings.model,
+          knowledgeItems: execSteps.slice(-20).map(step => ({
+            title: `Step ${step.step}: ${step.action}`,
+            content: step.url || step.target || '',
+            url: step.url,
+          })),
+          diagnostics: needsRecovery ? {
+            errorAnalysis: workflowErrorAnalysis,
+            evaluation: finalEvaluation,
+          } : undefined,
+        };
+
+        let cachedSummaryResult: SummarizationStepOutput;
+      
+        try {
+          if (cachedSummarizationFn) {
+            workflowDebug.debug('Executing cached summarization function');
+            cachedSummaryResult = await summarizationWithTimeout(
+              () => cachedSummarizationFn(summarizationParams) as Promise<SummarizationStepOutput>
+            ) as SummarizationStepOutput;
+          } else {
+            workflowDebug.debug('Executing summarization step directly (no cache)');
+            const { summarizationStep } = await import('../steps/summarization-step');
+            cachedSummaryResult = await summarizationWithTimeout(
+              () => summarizationStep(summarizationParams)
+            ) as SummarizationStepOutput;
+          }
+        } catch (timeoutError: any) {
+          workflowDebug.error('Summarization timed out or failed', {
+            error: timeoutError?.message,
+            errorType: timeoutError?.name,
+          });
+        
+           // Mark summarization as error
+           taskManager.failTask('summarize', 'Timed out after 10s');
+        
+          // Return a meaningful summary even when advanced summarization fails
+          const lastStep = execSteps[execSteps.length - 1];
+          const finalUrl = lastStep?.url || 'Unknown';
+          const successfulSteps = execSteps.filter(s => s.success).length;
+
+          cachedSummaryResult = {
+            summary: `## Summary\n\n✅ **Execution completed successfully**\n\n**Steps executed**: ${execSteps.length} (${successfulSteps} successful)\n**Final URL**: ${finalUrl}\n**Total duration**: ${(totalDuration / 1000).toFixed(1)}s\n\n### Execution Trajectory\n${execSteps.slice(-10).map(s => `- **Step ${s.step}**: ${s.action}${s.url ? ` → ${s.url}` : ''} ${s.success ? '✅' : '❌'}`).join('\n')}\n\n### Next Steps\n1. **Review results**: Check if the objective was achieved\n2. **Refine approach**: Adjust strategy based on execution results\n3. **Add monitoring**: Consider adding error handling for similar tasks\n\n*Note: Advanced AI-powered summary not available (You.com API key not configured).*`,
+            duration: 10000, // Timeout duration (reduced from 30s)
+            success: true, // Mark as successful since execution completed
+            trajectoryLength: trajectory.length,
+            stepCount: execSteps.length,
+          };
+        }
+
+         // Cast the cached result to the expected type
+         summarization = cachedSummaryResult as SummarizationStepOutput;
+
+         if (!summarization.summary || summarization.summary.trim().length === 0) {
+           const successSteps = execSteps.filter((s) => s.success).length;
+           const lastStep = execSteps[execSteps.length - 1];
+           const fallbackSummaryLines = [
+             '## Summary',
+             `- Executed ${execSteps.length} step${execSteps.length === 1 ? '' : 's'} (${successSteps} succeeded).`,
+             finalUrl ? `- Final URL visited: ${finalUrl}` : '- Final URL could not be determined.',
+             lastStep
+               ? `- Last action: ${lastStep.action}${lastStep.url ? ` @ ${lastStep.url}` : ''} ${lastStep.success ? '(succeeded)' : '(failed)'}.`
+               : '- No browser actions were executed.',
+             '',
+             '## Goal Assessment',
+             input.settings.youApiKey
+               ? '- Automatic summarizer produced no prose. Review the execution trajectory above.'
+               : '- Web search summarization is unavailable without a You.com API key. Showing an execution recap instead.',
+             '',
+             '## Suggested Next Actions',
+             '1. Review the execution trajectory for additional context.',
+             input.settings.youApiKey
+               ? '2. Re-run the workflow if more detail is required or adjust your instructions.'
+               : '2. Add a You.com API key in settings to enable richer summarization with web search.',
+             '3. Manually verify the results in the browser tab or continue automation as needed.',
+           ];
+
+           summarization = {
+             ...summarization,
+             summary: fallbackSummaryLines.join('\n'),
+             success: false,
+           };
+         }
+
+        let summaryContent = summarization.summary;
+        if (needsRecovery) {
+          const recoveryLines: string[] = [
+            '---',
+            '## Self-Recovery Plan',
+            '',
+          ];
+
+          if (workflowErrorAnalysis) {
+            recoveryLines.push(
+              `**Diagnosed Issue:** ${workflowErrorAnalysis.blame}`,
+              '',
+              '**Recap:**',
+              workflowErrorAnalysis.recap,
+              '',
+              '**Recommended Actions:**',
+              workflowErrorAnalysis.improvement
+            );
+          } else {
+            recoveryLines.push('Automated diagnostics ran, but no specific root cause was captured.');
+          }
+
+          if (finalEvaluation?.improvementSuggestions?.length) {
+            recoveryLines.push(
+              '',
+              '**Evaluator Suggestions:**',
+              finalEvaluation.improvementSuggestions.map((suggestion: string, idx: number) => `${idx + 1}. ${suggestion}`).join('\n')
+            );
+          }
+
+          recoveryLines.push(
+            '',
+            '✅ The agent will iterate automatically using these adjustments in the next execution cycle.'
+          );
+
+          summaryContent = [summarization.summary.trim(), recoveryLines.join('\n')].filter(Boolean).join('\n\n');
+          summarization = {
+            ...summarization,
+            summary: summaryContent,
+          };
+        }
+
+         workflowDebug.info('Summarization completed', {
+           success: summarization.success,
+           hasSummary: !!summarization.summary,
+           summaryLength: summarization.summary?.length || 0,
+           duration: summarization.duration,
+           hasError: !!summarization.error,
+         });
+
+          // Mark summarization as completed (or error if failed)
+          if (summarization.success) {
+            taskManager.completeTask('summarize', `Generated in ${(summarization.duration / 1000).toFixed(1)}s`);
+          } else {
+            taskManager.failTask('summarize', 'Summary generation failed');
+          }
+
+          // Mark execution as completed
+          taskManager.completeTask('execute', `${execSteps.length} step(s) executed`);
+       
+         if (summarization.success && summarization.summary?.trim()) {
+           workflowDebug.debug('Displaying summarization results', {
+             shouldStream,
+             summaryLength: summarization.summary.length,
+           });
+        
+          // Get final page context for summary message and normalize URL
+          const finalPageContextRaw = await context.getPageContextAfterAction().catch(() => null);
+          const normalizedPageContext = (finalPageContextRaw && finalPageContextRaw.url)
+            ? finalPageContextRaw
+            : finalPageContextRaw
+              ? { ...finalPageContextRaw, url: finalUrl }
+              : {
+                  url: finalUrl,
+                  title: '',
+                  textContent: '',
+                  links: [],
+                  images: [],
+                  forms: [],
+                  metadata: {},
+                  viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0, devicePixelRatio: 1 },
+                };
+
+          // If streaming was used, the content was already updated in real-time
+          // We just need to add the artifacts (summarization, trajectory, pageContext, metadata)
+          if (shouldStream && context.updateLastMessage) {
+            // Streaming path: add artifacts without changing content (already streamed)
+            context.updateLastMessage((msg: any) => {
+              const shouldUpdateContent = msg.content.includes('*Generating summary...*');
+              return {
+                ...msg,
+                content: shouldUpdateContent
+                  ? `---\n## Summary & Next Steps\n\n${summaryContent}`
+                  : msg.content,
+                summarization,
                 executionTrajectory: executionTrajectory.slice(),
-                pageContext: finalPageContext,
+                pageContext: normalizedPageContext,
                 workflowMetadata: {
                   workflowId,
                   conversationId: input.metadata?.conversationId,
                   totalDuration,
                   finalUrl,
                 },
-                 workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+                workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+              };
             });
-        }
-      } else {
-        workflowDebug.warn('Summarization failed or empty', {
-          success: summarization?.success,
-          hasSummary: !!summarization?.summary,
-          error: summarization?.error,
-        });
+          } else {
+            // Non-streaming path: push complete message with all artifacts
+            context.pushMessage({
+              id: summaryMessageId,
+              role: 'assistant',
+              content: `---\n## Summary & Next Steps\n\n${summaryContent}`,
+              summarization,
+              executionTrajectory: executionTrajectory.slice(),
+              pageContext: normalizedPageContext,
+              workflowMetadata: {
+                workflowId,
+                conversationId: input.metadata?.conversationId,
+                totalDuration,
+                finalUrl,
+              },
+              workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+            });
+          }
+        } else {
+          workflowDebug.warn('Summarization failed or empty', {
+            success: summarization?.success,
+            hasSummary: !!summarization?.summary,
+            error: summarization?.error,
+          });
         
-        // Remove placeholder if summarization failed
-        if (shouldStream && context.updateLastMessage) {
-          context.updateLastMessage((msg: any) => ({
-            ...msg,
-            content: msg.content.replace('*Generating summary...*', '*Summary generation failed*'),
-          }));
+          // Remove placeholder if summarization failed
+          if (shouldStream && context.updateLastMessage) {
+            context.updateLastMessage((msg: any) => ({
+              ...msg,
+              content: msg.content.replace('*Generating summary...*', '*Summary generation failed*'),
+            }));
+          }
         }
+      } catch (summarizationError: any) {
+        // This should rarely happen since fallback is built into summarizationStep
+        const errorMsg = summarizationError?.message || String(summarizationError);
+      
+        workflowDebug.error('Summarization step threw error', summarizationError);
+      
+        summarization = {
+          success: false,
+          duration: 0,
+          error: errorMsg,
+          trajectoryLength: execSteps.length,
+          stepCount: execSteps.length,
+        };
       }
-    } catch (summarizationError: any) {
-      // This should rarely happen since fallback is built into summarizationStep
-      const errorMsg = summarizationError?.message || String(summarizationError);
-      
-      workflowDebug.error('Summarization step threw error', summarizationError);
-      
-      summarization = {
-        success: false,
-        duration: 0,
-        error: errorMsg,
-        trajectoryLength: execSteps.length,
-        stepCount: execSteps.length,
-      };
-    }
-    
+
     // ============================================
     // Workflow Complete
     // ============================================
@@ -2047,6 +2347,13 @@ export async function browserAutomationWorkflow(
       pageContext,
       streaming,
       summarization,
+      errorAnalysis: workflowErrorAnalysis
+        ? {
+            recap: workflowErrorAnalysis.recap,
+            blame: workflowErrorAnalysis.blame,
+            improvement: workflowErrorAnalysis.improvement,
+          }
+        : undefined,
       executionTrajectory,
       totalDuration,
       finalUrl,
@@ -2086,7 +2393,7 @@ export async function browserAutomationWorkflow(
      });
     
     // Try to analyze the error if we have execution steps
-    let errorAnalysis: any = undefined;
+    workflowErrorAnalysis = undefined;
     if (execSteps.length > 0 && input.settings.apiKey) {
       try {
         const { analyzeExecutionFailure } = await import('../lib/error-analyzer');
@@ -2094,7 +2401,7 @@ export async function browserAutomationWorkflow(
           `At step ${idx + 1}, you took the **${step.action}** action${step.url ? ` and navigated to: "${step.url}"` : step.target ? ` on selector: "${step.target}"` : ''}. ${step.success ? 'You succeeded.' : `But it failed: ${step.error || 'Unknown error'}.`}`
         );
         
-        errorAnalysis = await analyzeExecutionFailure(
+        workflowErrorAnalysis = await analyzeExecutionFailure(
           diaryContext,
           input.userQuery,
           streaming?.fullText || errorMessage,
@@ -2106,10 +2413,12 @@ export async function browserAutomationWorkflow(
           }
         );
         
-        console.log('🔍 [Error Analyzer] Analysis complete:', {
-          recap: errorAnalysis.recap.substring(0, 200),
-          blame: errorAnalysis.blame.substring(0, 200),
-        });
+        if (workflowErrorAnalysis) {
+          console.log('🔍 [Error Analyzer] Analysis complete:', {
+            recap: workflowErrorAnalysis.recap.substring(0, 200),
+            blame: workflowErrorAnalysis.blame.substring(0, 200),
+          });
+        }
       } catch (analysisError: any) {
         console.warn('⚠️ [Error Analyzer] Failed to analyze error:', analysisError?.message);
       }
@@ -2134,13 +2443,13 @@ export async function browserAutomationWorkflow(
           optimizations: [],
         },
         confidence: 0,
-        planningBlock: `# Error\n\nWorkflow failed: ${errorMessage}${isBedrockSchemaError && isAnthropicModel ? '\n\n**Note**: This is a known limitation with Anthropic models. Try using Google models (gemini-2.5-flash-lite-preview-09-2025) for browser automation.' : ''}${errorAnalysis ? `\n\n## Error Analysis\n\n**Recap**: ${errorAnalysis.recap}\n\n**Root Cause**: ${errorAnalysis.blame}\n\n**Improvements**: ${errorAnalysis.improvement}` : ''}`,
+        planningBlock: `# Error\n\nWorkflow failed: ${errorMessage}${isBedrockSchemaError && isAnthropicModel ? '\n\n**Note**: This is a known limitation with Anthropic models. Try using Google models (gemini-2.5-flash-lite-preview-09-2025) for browser automation.' : ''}${workflowErrorAnalysis ? `\n\n## Error Analysis\n\n**Recap**: ${workflowErrorAnalysis.recap}\n\n**Root Cause**: ${workflowErrorAnalysis.blame}\n\n**Improvements**: ${workflowErrorAnalysis.improvement}` : ''}`,
         duration: totalDuration,
       },
-      errorAnalysis: errorAnalysis ? {
-        recap: errorAnalysis.recap,
-        blame: errorAnalysis.blame,
-        improvement: errorAnalysis.improvement,
+      errorAnalysis: workflowErrorAnalysis ? {
+        recap: workflowErrorAnalysis.recap,
+        blame: workflowErrorAnalysis.blame,
+        improvement: workflowErrorAnalysis.improvement,
       } : undefined,
       streaming: streaming || {
         fullText: '',
@@ -2176,4 +2485,3 @@ export async function browserAutomationWorkflow(
      };
   }
 }
-

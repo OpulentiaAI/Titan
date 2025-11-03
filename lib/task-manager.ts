@@ -349,10 +349,16 @@ export function createWorkflowTaskManager(options?: TaskManagerOptions): TaskMan
     dependencies: ['plan'],
   });
 
+  manager.createTask('analyze', 'Diagnose Execution', {
+    priority: 'medium',
+    description: 'Review trajectory for errors and determine next actions',
+    dependencies: ['execute'],
+  });
+
   manager.createTask('summarize', 'Generate Summary', {
     priority: 'medium',
     description: 'Analyze execution results and provide summary/next steps',
-    dependencies: ['execute'],
+    dependencies: ['analyze'],
   });
 
   return manager;

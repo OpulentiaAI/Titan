@@ -286,8 +286,8 @@ const AgentPromptComposerComponent = ({
           </div>
         )}
 
-        {/* Main Input Area - ChatGPT-style with rounded-3xl and white/5 background */}
-        <div className="relative mx-auto flex w-full max-w-screen-md items-end rounded-3xl bg-white/5 dark:bg-white/5 shadow-sm transition-shadow hover:shadow-md">
+        {/* Main Input Area - ChatGPT-style with rounded-3xl, subtle border, and backdrop blur */}
+        <div className="relative mx-auto flex w-full max-w-screen-md items-center gap-2 overflow-hidden rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-md shadow-sm transition-all hover:shadow-md focus-within:border-slate-300/70 focus-within:ring-2 focus-within:ring-sky-200/50 dark:border-white/10 dark:bg-slate-900/60 dark:focus-within:border-white/20 dark:focus-within:ring-sky-500/40">
           <Textarea
             ref={textareaRef}
             value={value}
@@ -295,7 +295,7 @@ const AgentPromptComposerComponent = ({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled || isLoading}
-            className="h-12 flex-grow resize-none bg-transparent text-sm text-white dark:text-white outline-none border-0 placeholder:text-white/50 dark:placeholder:text-white/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-12 flex-grow resize-none border-0 bg-transparent text-sm text-slate-900 placeholder:text-slate-500 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 dark:text-slate-50 dark:placeholder:text-slate-400"
             style={{
               maxHeight: `${maxHeight}px`,
               overflowY: 'auto',

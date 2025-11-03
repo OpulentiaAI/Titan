@@ -4,12 +4,9 @@
 import { Experimental_Agent as ToolLoopAgent, stepCountIs } from 'ai';
 import type { StreamingStepOutput } from '../schemas/workflow-schemas';
 import type { Message } from '../types';
-import { logEvent, logStepProgress, logToolExecution } from '../lib/braintrust';
-import {
-  createEnhancedAgentConfig,
-  AgentPerformanceMonitor,
-} from '../lib/agent-enhancements';
-import { streamingDebug, agentDebug, messageDebug, toolDebug } from '../lib/debug-logger';
+import { logEvent, logStepProgress, logToolExecution } from '../lib/braintrust.ts';
+import { createEnhancedAgentConfig, type AgentCapabilities } from '../lib/agent-enhancements.ts';
+import { streamingDebug, agentDebug, messageDebug, toolDebug } from '../lib/debug-logger.ts';
 
 interface StreamingStepInput {
   model: any;

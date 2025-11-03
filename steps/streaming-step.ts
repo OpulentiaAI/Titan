@@ -334,7 +334,72 @@ export async function streamingStep(
         resultType: typeof result,
       });
 
-      return result;
+      // Extract tool executions and build execution steps
+      const toolExecutions: Array<{ tool: string; success: boolean; duration: number }> = [];
+      const executionSteps: Array<{ step: number; action: string; url?: string; success: boolean }> = [];
+
+      // Process the agent result to extract tool execution information
+      if (result && result._steps) {
+        result._steps.forEach((step: any, index: number) => {
+          if (step.toolCall) {
+            const toolName = step.toolCall.toolName || step.toolCall.name || 'unknown';
+            const success = step.toolResult && !step.toolResult.error;
+            const duration = step.duration || 0;
+
+            toolExecutions.push({
+              tool: toolName,
+              success,
+              duration,
+            });
+
+            // Map tool calls to execution steps
+            const execStep = input.execSteps.find(es => es.action === toolName || es.step === index + 1);
+            if (execStep) {
+              executionSteps.push({
+                step: execStep.step,
+                action: execStep.action,
+                url: execStep.url,
+                success,
+              });
+            }
+          }
+        });
+      }
+
+      // If no tool executions found in _steps, use the input execSteps as-is
+      if (executionSteps.length === 0) {
+        executionSteps.push(...input.execSteps.map(step => ({
+          step: step.step,
+          action: step.action,
+          url: step.url,
+          success: false, // Default to false since we don't know the actual result
+        })));
+      }
+
+      // Build the proper StreamingStepOutput
+      const streamingOutput = {
+        fullText: result?.text || '',
+        textChunkCount: result?.text?.split(' ')?.length || 0,
+        toolCallCount: toolExecutions.length,
+        toolExecutions,
+        usage: result?._totalUsage ? {
+          promptTokens: result._totalUsage.promptTokens || 0,
+          completionTokens: result._totalUsage.completionTokens || 0,
+          totalTokens: result._totalUsage.totalTokens || 0,
+        } : undefined,
+        finishReason: result?._finishReason || 'completed',
+        duration: Date.now() - startTime,
+        executionSteps,
+      };
+
+      streamingDebug.info('Returning formatted StreamingStepOutput', {
+        fullTextLength: streamingOutput.fullText.length,
+        toolCallCount: streamingOutput.toolCallCount,
+        executionStepsCount: streamingOutput.executionSteps.length,
+        finishReason: streamingOutput.finishReason,
+      });
+
+      return streamingOutput;
     } catch (streamError: any) {
       streamingDebug.error('Agent stream failed', streamError);
       console.error('❌ [STREAMING] Agent stream error:', {

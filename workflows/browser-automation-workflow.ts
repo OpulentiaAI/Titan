@@ -1748,7 +1748,17 @@ export async function browserAutomationWorkflow(
       fullTextLength: streaming?.fullText?.length || 0,
       toolCallCount: streaming?.toolCallCount || 0,
       finishReason: streaming?.finishReason,
+      executionStepsCount: streaming?.executionSteps?.length || 0,
     });
+
+    // Update execSteps with results from streaming step
+    if (streaming?.executionSteps && streaming.executionSteps.length > 0) {
+      console.log('📋 [WORKFLOW] Updating execSteps with streaming results');
+      // Replace execSteps with the updated versions from streaming
+      execSteps.length = 0; // Clear the array
+      execSteps.push(...streaming.executionSteps);
+      console.log('📋 [WORKFLOW] execSteps updated:', execSteps.map(s => ({ step: s.step, action: s.action, success: s.success })));
+    }
 
 // ============================================
      // PHASE 5.5: Result Aggregation & Evaluation (Before Summarization)

@@ -168,7 +168,14 @@ export async function browserAutomationWorkflow(
   }
 ): Promise<BrowserAutomationWorkflowOutput> {
   "use workflow"; // Makes this a durable workflow that can pause/resume
-  
+
+  console.log('🚀 [WORKFLOW] Function called with input:', {
+    userQuery: input.userQuery,
+    hasInitialContext: !!input.initialContext,
+    provider: input.settings.provider,
+    model: input.settings.model
+  });
+
   // Generate workflow ID (simple ID generation)
   const workflowId = `wf_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   const workflowStartTime = Date.now();
@@ -455,11 +462,30 @@ export async function browserAutomationWorkflow(
     
     let planning = planningResult.result;
     
+    console.log('🔧 [WORKFLOW] About to normalize plan steps');
+    console.log('🔧 [WORKFLOW] Original planning structure:', {
+      hasPlan: !!planning.plan,
+      hasSteps: !!planning.plan?.steps,
+      stepsType: typeof planning.plan?.steps,
+      stepsIsArray: Array.isArray(planning.plan?.steps),
+      stepsLength: planning.plan?.steps?.length || 0,
+      firstStep: planning.plan?.steps?.[0] ? {
+        action: planning.plan.steps[0].action,
+        target: planning.plan.steps[0].target,
+      } : null,
+    });
+    
     // Normalize plan steps to ensure navigation + validation steps are present
     const normalizedSteps = normalizePlanSteps(
       Array.isArray(planning.plan?.steps) ? planning.plan.steps as PlanStep[] : [],
       input.userQuery
     );
+    
+    console.log('🔧 [WORKFLOW] Plan steps normalized successfully', {
+      originalSteps: planning.plan.steps.length,
+      normalizedSteps: normalizedSteps.length,
+    });
+    
     planning = {
       ...planning,
       plan: {
@@ -479,14 +505,24 @@ export async function browserAutomationWorkflow(
       complexityScore: planning.plan.complexityScore,
     });
     
+    console.log('📝 [WORKFLOW] About to update last message with planning results');
+    try {
       // Update with plan summary and attach planning data
-    context.updateLastMessage((msg) => ({
-      ...msg,
-       content: `🧠 **Planning Complete** ✅\n\n**Plan Generated:**\n- Steps: ${planning.plan.steps.length}\n- Complexity: ${(planning.plan.complexityScore * 100).toFixed(0)}%\n- Confidence: ${(planning.confidence * 100).toFixed(0)}%\n\n**Reasoning:** ${planning.plan.steps.slice(0, 3).map((s: any, i: number) => `${i + 1}. ${s.action || 'Action'}: ${s.description?.substring(0, 60) || 'N/A'}...`).join('\n')}\n\n*Proceeding with execution...*`,
-       planning: planning, // Attach planning data for artifact view
-       executionTrajectory: executionTrajectory.slice(), // Attach current trajectory
-       workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
-    }));
+      context.updateLastMessage((msg) => ({
+         ...msg,
+          content: `🧠 **Planning Complete** ✅\n\n**Plan Generated:**\n- Steps: ${planning.plan.steps.length}\n- Complexity: ${(planning.plan.complexityScore * 100).toFixed(0)}%\n- Confidence: ${(planning.confidence * 100).toFixed(0)}%\n\n**Reasoning:** ${planning.plan.steps.slice(0, 3).map((s: any, i: number) => `${i + 1}. ${s.action || 'Action'}: ${s.description?.substring(0, 60) || 'N/A'}...`).join('\n')}\n\n*Proceeding with execution...*`,
+          planning: planning, // Attach planning data for artifact view
+          executionTrajectory: executionTrajectory.slice(), // Attach current trajectory
+          workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+      }));
+      console.log('📝 [WORKFLOW] Last message updated successfully');
+    } catch (updateError: any) {
+      console.error('❌ [WORKFLOW] Failed to update last message:', {
+        error: updateError?.message,
+        stack: updateError?.stack,
+      });
+      throw updateError;
+    }
     
     executionTrajectory.push({
       step: 0,
@@ -496,7 +532,22 @@ export async function browserAutomationWorkflow(
     });
 
     // Populate execSteps from planning output for execution tracking
+    console.log('📋 [WORKFLOW] About to populate execSteps from planning output');
+    console.log('📋 [WORKFLOW] Planning result structure:', {
+      hasPlan: !!planning.plan,
+      hasSteps: !!planning.plan?.steps,
+      stepsType: typeof planning.plan?.steps,
+      stepsIsArray: Array.isArray(planning.plan?.steps),
+      stepsLength: planning.plan?.steps?.length || 0,
+    });
+    
     planning.plan.steps.forEach((step: any, index: number) => {
+      console.log(`📋 [WORKFLOW] Processing step ${index + 1}:`, {
+        action: step.action,
+        target: step.target,
+        hasAction: !!step.action,
+        hasTarget: !!step.target,
+      });
       execSteps.push({
         step: index + 1,
         action: step.action,
@@ -510,6 +561,8 @@ export async function browserAutomationWorkflow(
       execStepsCount: execSteps.length,
       actions: execSteps.map(s => s.action),
     });
+
+    console.log('🔄 [WORKFLOW] After execSteps population, proceeding to agent messages setup');
 
     const agentMessages: Message[] = [...messages];
     const EXECUTION_PROMPT_MARKER = '[ATLAS_EXECUTION_PROMPT]';
@@ -589,163 +642,106 @@ export async function browserAutomationWorkflow(
             let typeText = 'Sample text'; // Default text
 
             // Try to extract text from various fields
-            if (step.reasoning) {
-              const textMatch = step.reasoning.match(/text["\s:]+([^".,]+)/i);
-              if (textMatch) typeText = textMatch[1];
+            if (step.description) {
+              const textMatch = step.description.match(/type["\s]*([^"]+)/i) || step.description.match(/enter["\s]*([^"]+)/i);
+              if (textMatch) {
+                typeText = textMatch[1];
+              }
             }
-            if (step.expectedOutcome) {
-              const textMatch = step.expectedOutcome.match(/text["\s:]+([^".,]+)/i);
-              if (textMatch) typeText = textMatch[1];
-            }
-
-            extractedParams = `text: "${typeText}", selector: "${typeTarget || 'input'}"`;
+            extractedParams = `selector: "${typeTarget}", text: "${typeText}"`;
             break;
 
           case 'scroll':
             // Enhanced scroll parameter extraction
-            let scrollDir = 'down';
-            let scrollAmount = 500;
-
-            if (step.target && step.target.toLowerCase().includes('up')) {
-              scrollDir = 'up';
-            }
-            if (step.expectedOutcome) {
-              const amountMatch = step.expectedOutcome.match(/(\d+)\s*px/i);
-              if (amountMatch) {
-                scrollAmount = parseInt(amountMatch[1]);
-              }
-            }
-            extractedParams = `direction: "${scrollDir}", amount: ${scrollAmount}`;
+            let scrollDirection = step.target || 'down';
+            let scrollAmount = '500'; // Default scroll amount
+            extractedParams = `direction: "${scrollDirection}", amount: "${scrollAmount}"`;
             break;
 
           case 'wait':
             // Enhanced wait parameter extraction
-            let waitSeconds = 2;
-            if (step.target && !isNaN(parseInt(step.target))) {
-              waitSeconds = parseInt(step.target);
-            } else if (step.expectedOutcome) {
-              const timeMatch = step.expectedOutcome.match(/(\d+)\s*(second|sec|s)/i);
-              if (timeMatch) {
-                waitSeconds = parseInt(timeMatch[1]);
-              }
-            }
-            extractedParams = `seconds: ${waitSeconds}`;
+            let waitTime = step.target || '3'; // Default 3 seconds
+            extractedParams = `seconds: ${waitTime}`;
             break;
 
           default:
-            // For other actions, use target with validation
-            extractedParams = `target: "${step.target || step.action}"`;
+            extractedParams = `target: "${step.target || 'N/A'}"`;
         }
 
-        const base = `${idx + 1}. ${step.action}(${extractedParams})`;
-        const expected = step.expectedOutcome ? `Expected: ${step.expectedOutcome}` : '';
-        const validation = step.validationCriteria ? `Validation: ${step.validationCriteria}` : '';
-        const reasoning = step.reasoning ? `Reasoning: ${step.reasoning.substring(0, 100)}...` : '';
-
-        return [base, expected, validation, reasoning].filter(Boolean).join('\n   ');
+        return `Step ${idx + 1}: ${step.action}(${extractedParams}) - ${step.description || 'Execute action'}`;
       });
 
-      const executionInstructionSections = [
-        EXECUTION_PROMPT_MARKER,
-        '',
-        `Objective: ${input.userQuery}`,
-        '',
-        'Execute the following plan step-by-step using the available tools:',
-        ...enhancedPlanStepLines,
-        '',
-        'CRITICAL EXECUTION RULES:',
-        '1. PARAMETER EXTRACTION: Extract ALL parameters from the plan above before calling tools',
-        '   - Navigate actions MUST include { url: "EXTRACTED_URL" }',
-        '   - Click actions MUST include { selector: "EXTRACTED_SELECTOR" } or { x: number, y: number }',
-        '   - Type actions MUST include { text: "EXTRACTED_TEXT", selector?: "SELECTOR" }',
-        '2. TOOL CALL FORMAT: Always use proper parameter syntax:',
-        '   ✅ CORRECT: navigate({ url: "https://example.com" })',
-        '   ❌ WRONG: navigate({}) or navigate()',
-        '3. VALIDATION: Call getPageContext() after every tool to verify success',
-        '4. ERROR RECOVERY: If a tool fails, analyze the error and retry with corrected parameters',
-        '5. SEQUENTIAL EXECUTION: Complete step-by-step, don\'t skip steps',
-        '',
-        'AVAILABLE TOOLS WITH PARAMETERS:',
-        '- navigate({ url: string }) - Navigate to URL (REQUIRED: url parameter)',
-        '- click({ selector?: string, x?: number, y?: number }) - Click element or coordinates',
-        '- type_text({ selector?: string, text: string, press_enter?: boolean }) - Type text',
-        '- scroll({ direction: string, amount?: number, selector?: string }) - Scroll page',
-        '- wait({ seconds: number }) - Wait specified seconds',
-        '- getPageContext() - Get current page state (no parameters)',
-        '- press_key({ key: string }) - Press specific key',
-        '- key_combination({ keys: string[] }) - Press key combination',
-        '',
-        'EXECUTION ORDER:',
-        ...planning.plan.steps.map((step, idx) => `${idx + 1}. ${step.action} → ${step.expectedOutcome}`),
-        '',
-        'Remember: Extract parameters from the plan above and use proper tool call syntax!',
-      ].filter(Boolean);
-
-      const executionInstructionMessage: Message = {
-        id: `exec-${workflowId}-${Date.now()}`,
-        role: 'user',
-        content: executionInstructionSections.join('\n'),
+      const executionInstructionMessage = {
+        id: `execution-instructions-${Date.now()}`,
+        role: 'user' as const,
+        content: `${EXECUTION_PROMPT_MARKER}\n\n**EXECUTION PLAN:**\n${enhancedPlanStepLines.join('\n')}\n\n**INSTRUCTIONS:**\nExecute each step in sequence. Use the provided tools to complete the task. After each tool call, verify the action was successful. If any step fails, attempt recovery or provide detailed error information.\n\n**TOOLS AVAILABLE:**\n- navigate: Go to a URL\n- click: Click on elements\n- type_text: Enter text into inputs\n- scroll: Scroll the page\n- wait: Wait for page updates\n- getPageContext: Get current page information\n\n**VERIFICATION:** After completing all steps, provide a summary of what was accomplished.`,
       };
 
       agentMessages.push(executionInstructionMessage);
 
-      workflowDebug.debug('Execution instruction appended', {
+      console.log('🔧 [WORKFLOW] Execution instruction appended', {
         planSteps: planning.plan.steps.length,
         instructionLength: executionInstructionMessage.content.length,
       });
     }
     
+    console.log('📄 [WORKFLOW] Agent messages prepared, proceeding to page context step');
+    
 // ============================================
-     // PHASE 2: Page Context Step (if not provided)
-     // ============================================
-     let pageContext: PageContextStepOutput | undefined;
-     if (!input.initialContext?.pageContext) {
-       logStepProgress('browser_automation_workflow', 2, {
-         phase: 'page_context',
-         action: 'gathering_page_context',
-       });
-      const pageContextResult = await useStep('page-context', async () => {
-        return await pageContextStep(context.executeTool);
-      }, {
-        retry: 1,
-        timeout: 10000,
-        abortSignal: context.abortSignal,
+// PHASE 2: Page Context Step (if not provided)
+// ============================================
+    console.log('🏠 [WORKFLOW] Starting PHASE 2: Page Context Step');
+    let pageContext: PageContextStepOutput | undefined;
+    if (!input.initialContext?.pageContext) {
+      console.log('📄 [WORKFLOW] No initial page context provided, gathering page context');
+      logStepProgress('browser_automation_workflow', 2, {
+        phase: 'page_context',
+        action: 'gathering_page_context',
       });
-      
-      pageContext = pageContextResult.result;
-      executionTrajectory.push({
-        step: 1,
-        action: 'getPageContext',
-        url: pageContext.pageContext.url,
-        success: pageContext.success,
-        timestamp: Date.now(),
-      });
-      
-      // Attach page context to message
-      context.updateLastMessage((msg) => ({
-        ...msg,
-        pageContext: pageContext,
-        executionTrajectory: executionTrajectory.slice(),
-      }));
+     const pageContextResult = await useStep('page-context', async () => {
+       return await pageContextStep(context.executeTool);
+     }, {
+       retry: 1,
+       timeout: 10000,
+       abortSignal: context.abortSignal,
+     });
+     
+     pageContext = pageContextResult.result;
+     executionTrajectory.push({
+       step: 1,
+       action: 'getPageContext',
+       url: pageContext.pageContext.url,
+       success: pageContext.success,
+       timestamp: Date.now(),
+     });
+     
+     // Attach page context to message
+     context.updateLastMessage((msg) => ({
+       ...msg,
+       pageContext: pageContext,
+       executionTrajectory: executionTrajectory.slice(),
+     }));
+     console.log('📄 [WORKFLOW] Page context gathered successfully');
 } else {
-       logStepProgress('browser_automation_workflow', 2, {
-         phase: 'page_context',
-         action: 'using_provided_context',
-       });
-      // initialContext.pageContext is already a PageContext object, wrap it properly
-      const providedContext = input.initialContext.pageContext;
-      pageContext = {
-        pageContext: {
-          url: providedContext?.url || '',
-          title: providedContext?.title || '',
-          text: providedContext?.text || providedContext?.textContent || '',
-          links: providedContext?.links || [],
-          forms: providedContext?.forms || [],
-          viewport: providedContext?.viewport || { width: 1280, height: 720 },
-        },
-        duration: 0,
-        success: true,
-      };
+      console.log('📄 [WORKFLOW] Using provided initial page context');
+      logStepProgress('browser_automation_workflow', 2, {
+        phase: 'page_context',
+        action: 'using_provided_context',
+      });
+     // initialContext.pageContext is already a PageContext object, wrap it properly
+     const providedContext = input.initialContext.pageContext;
+     pageContext = {
+       pageContext: {
+         url: providedContext?.url || '',
+         title: providedContext?.title || '',
+         text: providedContext?.text || providedContext?.textContent || '',
+         links: providedContext?.links || [],
+         forms: providedContext?.forms || [],
+         viewport: providedContext?.viewport || { width: 1280, height: 720 },
+       },
+       duration: 0,
+       success: true,
+     };
     }
     
     // ============================================
@@ -1168,7 +1164,6 @@ export async function browserAutomationWorkflow(
             try {
               toolDebug.error('getPageContext tool failed', error, toolDuration);
             } catch (logError) {
-              // Fallback if debug logger fails
               console.error(`❌ [Tool: getPageContext] Debug logging failed:`, logError);
             }
             console.error(`❌ [Tool: getPageContext] Failed after ${toolDuration}ms:`, error?.message || error);
@@ -1676,22 +1671,17 @@ export async function browserAutomationWorkflow(
     }
     
 // ============================================
-     // PHASE 5: Streaming Step (Main Execution with AI SDK Agent)
-     // ============================================
-     console.log('🤖 [WORKFLOW] Using AI SDK 6 Agent for agentic execution with tool calls');
+// PHASE 5: Streaming Step (Main Execution with AI SDK Agent)
+// ============================================
+    console.log('🎯 [WORKFLOW] Entering PHASE 5: Streaming Step');
+    console.log('🤖 [WORKFLOW] Using AI SDK 6 Agent for agentic execution with tool calls');
      console.log('🤖 [WORKFLOW] Agent features: dynamic model selection, smart stop conditions, performance monitoring');
-     
-     logStepProgress('browser_automation_workflow', 5, {
-       phase: 'streaming',
-       action: 'starting_main_execution',
-       messages_count: agentMessages.length,
-       agent_features: {
-         dynamic_models: true,
-         smart_stop_conditions: true,
-         performance_monitoring: true,
-         web_search: hasYouApiKey,
-       },
-     });
+      
+      logStepProgress('browser_automation_workflow', 5, {
+        phase: 'streaming',
+        action: 'starting_main_execution',
+        messages_count: agentMessages.length,
+      });
     
     // Final validation before streaming
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -1715,6 +1705,18 @@ export async function browserAutomationWorkflow(
       agentMessagesCount: agentMessages.length,
     });
 
+    console.log('🔍 [WORKFLOW] Pre-streaming validation checks:');
+    console.log('  - execSteps populated:', execSteps.length > 0);
+    console.log('  - agentMessages exist:', !!agentMessages);
+    console.log('  - agentMessages length:', agentMessages.length);
+    console.log('  - model exists:', !!model);
+    console.log('  - system exists:', !!system);
+    console.log('  - tools exist:', !!tools);
+    console.log('  - updateLastMessage exists:', typeof context.updateLastMessage);
+    console.log('  - pushMessage exists:', typeof context.pushMessage);
+    console.log('  - abortSignal exists:', !!context.abortSignal);
+
+    console.log('🎯 [WORKFLOW] REACHED STREAMING STEP CALL - EXECUTING NOW');
     const streaming = await streamingStep({
       model,
       system,
@@ -1725,6 +1727,7 @@ export async function browserAutomationWorkflow(
       pushMessage: context.pushMessage,
       abortSignal: context.abortSignal,
     });
+    console.log('🎯 [WORKFLOW] STREAMING STEP COMPLETED');
     
 // ============================================
      // PHASE 5.5: Result Aggregation & Evaluation (Before Summarization)

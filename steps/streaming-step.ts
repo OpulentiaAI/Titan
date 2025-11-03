@@ -37,6 +37,8 @@ export async function streamingStep(
      toolCount: Object.keys(input.tools || {}).length,
      toolNames: Object.keys(input.tools || {}),
      hasAbortSignal: !!input.abortSignal,
+     modelType: typeof input.model,
+     systemLength: input.system?.length || 0,
    });
    
    // Validate input - ensure messages exist and are not empty
@@ -45,8 +47,8 @@ export async function streamingStep(
      streamingDebug.error('Invalid messages input', new Error(errorMsg));
      console.error(`❌ [StreamingStep] ${errorMsg}`);
      throw new Error(errorMsg);
-  }
-  
+   }
+   
    streamingDebug.debug('Messages validated', {
      messageCount: input.messages.length,
      firstMessage: {
@@ -71,6 +73,11 @@ export async function streamingStep(
     // Initialize performance monitoring
     const perfMonitor = new AgentPerformanceMonitor();
     const availableToolNames = Object.keys(input.tools || {});
+    
+    streamingDebug.debug('Creating enhanced agent config', {
+      availableToolNames,
+      toolCount: availableToolNames.length,
+    });
     
     // Configure enhanced agent with all AI SDK 6 features
     const enhancements = createEnhancedAgentConfig({
@@ -107,6 +114,19 @@ export async function streamingStep(
       
       // Performance monitoring
       enablePerformanceMonitoring: true,
+    });
+    
+    streamingDebug.debug('Enhanced agent config created', {
+      hasDynamicModels: !!enhancements.dynamicModels,
+      hasReasoning: !!enhancements.reasoning,
+      stopConditionsCount: enhancements.stopConditions?.length || 0,
+    });
+    
+    streamingDebug.debug('Creating ToolLoopAgent', {
+      modelType: typeof input.model,
+      systemLength: input.system?.length || 0,
+      toolChoice: 'required',
+      hasExperimentalReasoning: true,
     });
     
     // Create ToolLoopAgent with all enhancements + forced reasoning
@@ -189,6 +209,11 @@ export async function streamingStep(
       },
     });
     
+    streamingDebug.debug('ToolLoopAgent created successfully', {
+      agentType: typeof agent,
+      hasStreamMethod: typeof agent.stream === 'function',
+    });
+    
     // Debug: Log messages before streaming to catch any issues
     streamingDebug.debug('Preparing to stream', {
       messageCount: input.messages?.length || 0,
@@ -222,15 +247,60 @@ export async function streamingStep(
       content: msg.content,
     }));
     
+    streamingDebug.debug('Converted messages to AI SDK format', {
+      aiMessageCount: aiMessages.length,
+      format: 'AI SDK format',
+      firstMessageRole: aiMessages[0]?.role,
+      firstMessageContentLength: aiMessages[0]?.content?.length || 0,
+    });
+    
     streamingDebug.debug('Calling agent.stream()', {
       aiMessageCount: aiMessages.length,
       format: 'AI SDK format',
     });
     
     const agentTimer = agentDebug.time('Agent Stream');
-    const agentStream = await agent.stream({ messages: aiMessages });
-    const result = await agentStream;
-    agentTimer();
+
+    try {
+      streamingDebug.info('Calling agent.stream() with messages', {
+        messageCount: aiMessages.length,
+        firstMessagePreview: aiMessages[0]?.content?.substring(0, 100),
+        model: input.model,
+        agentType: typeof agent,
+        hasStreamMethod: typeof agent.stream === 'function',
+      });
+
+      const agentStream = await agent.stream({ messages: aiMessages });
+      streamingDebug.debug('agent.stream() returned successfully', {
+        agentStreamType: typeof agentStream,
+        hasResult: !!agentStream,
+      });
+      
+      const result = await agentStream;
+      agentTimer();
+
+      streamingDebug.info('Agent stream completed successfully', {
+        hasResult: !!result,
+        hasFullStream: !!result.fullStream,
+        resultKeys: Object.keys(result || {}),
+        resultType: typeof result,
+      });
+
+      return result;
+    } catch (streamError: any) {
+      streamingDebug.error('Agent stream failed', streamError);
+      console.error('❌ [STREAMING] Agent stream error:', {
+        message: streamError?.message,
+        name: streamError?.name,
+        stack: streamError?.stack,
+        cause: streamError?.cause,
+        errorType: typeof streamError,
+        errorKeys: Object.keys(streamError || {}),
+      });
+
+      // Re-throw to let workflow handle it
+      throw streamError;
+    }
     
     streamingDebug.info('Agent stream initialized', {
       hasResult: !!result,

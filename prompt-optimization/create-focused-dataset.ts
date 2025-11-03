@@ -5,8 +5,12 @@
  * for fast GEPA optimization
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, writeFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 interface Sample {
   id: string;
@@ -128,8 +132,8 @@ function createFocusedDataset(agentName: string, targetCount: number = 20): Data
     
     return focusedDataset;
     
-  } catch (error) {
-    console.error(`❌ Error processing ${agentName}:`, error.message);
+    } catch (error: any) {
+    console.error(`❌ Error processing ${agent.name}:`, error.message);
     return { groups: [], currentGroupId: 'default' };
   }
 }

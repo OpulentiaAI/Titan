@@ -2,7 +2,7 @@
 // 'use step' directive makes this a durable, resumable step
 
 import type { PageContextStepOutput } from '../schemas/workflow-schemas';
-import { contextDebug } from '../lib/debug-logger';
+import { contextDebug } from '../lib/debug-logger.ts';
 
 /**
  * Page Context Step - Gets current page state
@@ -72,4 +72,3 @@ export async function pageContextStep(
     };
   }
 }
-

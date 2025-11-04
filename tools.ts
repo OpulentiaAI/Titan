@@ -1,8 +1,6 @@
-// Composio Tool Router integration
-// Based on https://docs.composio.dev/docs/tool-router/quick-start
-//
-// Tool Router provides an MCP (Model Context Protocol) URL that the AI SDK uses to access tools.
-// We use Composio's REST API directly instead of the SDK to avoid Node.js dependencies.
+// Tool Router integration (generic)
+// Provides an MCP (Model Context Protocol) URL that the AI SDK uses to access tools.
+// We use a REST API directly instead of an SDK to avoid Node.js dependencies.
 
 /**
  * Generates or retrieves a unique, persistent user ID for this extension installation
@@ -48,7 +46,7 @@ export async function initializeComposioToolRouter(apiKey: string, useUserId?: s
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Failed to create Composio session: ${response.status} ${errorText}`);
+      throw new Error(`Failed to create tool router session: ${response.status} ${errorText}`);
     }
 
     const session = await response.json();
@@ -62,7 +60,7 @@ export async function initializeComposioToolRouter(apiKey: string, useUserId?: s
       createdAt: Date.now(),
     };
   } catch (error) {
-    console.error('Error initializing Composio Tool Router:', error);
+    console.error('Error initializing tool router:', error);
     throw error;
   }
 }

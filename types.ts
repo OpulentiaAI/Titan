@@ -6,15 +6,15 @@ export type ToolMode = 'tool-router';
 export type ComputerUseEngine = 'google' | 'gateway-flash-lite';
 
 export interface Settings {
-  provider: 'google' | 'gateway';
+  provider: 'google' | 'gateway' | 'nim' | 'openrouter';
   apiKey: string;
   model: string;
   toolMode?: ToolMode;
   composioApiKey?: string;
-  // You.com Search API (optional)
+  // Web search API key (optional)
   youApiKey?: string;
   youBaseUrl?: string; // defaults to https://api.ydc-index.io
-  // Braintrust observability (optional)
+  // Observability (optional)
   braintrustApiKey?: string;
   braintrustProjectName?: string; // defaults to "atlas-extension"
   // Computer Use engine selection (optional; defaults by provider)
@@ -96,7 +96,7 @@ export interface Message {
     description?: string;
     status: 'pending' | 'in_progress' | 'completed' | 'error';
   }>;
-  // Reasoning tokens (OpenRouter/Atlas pattern) - chain of thought transparency
+  // Reasoning tokens (transparent pattern) - chain of thought transparency
   reasoning?: string[];
   reasoningDetails?: Array<{
     type: 'reasoning.summary' | 'reasoning.encrypted' | 'reasoning.text';
@@ -205,7 +205,7 @@ export interface BrowserActionParams {
 }
 
 /**
- * Gemini API function call
+ * Provider API function call
  */
 export interface GeminiFunctionCall {
   name: string;
@@ -228,7 +228,7 @@ export interface ViewportInfo {
 // ============================================
 
 /**
- * Validates Gemini API response structure
+ * Validates provider API response structure
  * Ensures response has expected format before processing
  */
 export const GeminiPartSchema = z.union([
@@ -271,7 +271,7 @@ export const GeminiResponseSchema = z.object({
 });
 
 /**
- * Validates Composio session response
+ * Validates tool router session response
  */
 export const ComposioSessionSchema = z.object({
   session_id: z.string().min(1),

@@ -1,0 +1,174 @@
+
+> atlas-browser-extension@1.0.0 test:ogs-streaming
+> tsx test-realtime-ogs-streaming-e2e.ts
+
+🚀 Starting Chrome with enhanced DevTools for OG streaming...
+✅ Chrome started successfully with OG streaming support
+🔗 Connecting to Chrome DevTools Protocol...
+✅ Connected to Chrome DevTools
+✅ DevTools domains enabled for OG streaming
+================================================================================
+🧪 ATLAS BROWSER EXTENSION - REAL-TIME OG STREAMING E2E TEST SUITE
+================================================================================
+
+
+📋 Test 1/9
+⚙️ Testing latest configuration...
+📊 Configuration check: {
+  configValid: true,
+  dependenciesLatest: true,
+  aiSdkVersion: '^6.0.0-beta.88',
+  viteVersion: '^5.4.10',
+  configFiles: '4/4'
+}
+✅ Latest Configuration (1ms)
+
+📋 Test 2/9
+📦 Testing extension loading...
+📊 Extension loaded: {
+  result: {
+    type: 'object',
+    className: 'Object',
+    description: 'Object',
+    objectId: '-2132992325618924227.1.1'
+  }
+}
+❌ Extension Loading (1ms)
+
+📋 Test 3/9
+🌊 Testing streaming step with OG data...
+📊 Streaming mock test: { navigateSuccess: true, contextSuccess: true, hasOGMetadata: true }
+✅ Streaming Step (1ms)
+
+📋 Test 4/9
+🏭 Testing production workflow...
+  → Testing https://example.com
+  → Testing https://httpbin.org/json
+📊 Production workflow: 2 sites tested, avg OG tags: 0.0
+✅ Production Workflow (5205ms)
+
+📋 Test 5/9
+🕷️ Testing real-time OG extraction on: https://example.com
+📊 OG Data extracted: {
+  ogTagCount: 0,
+  twitterTagCount: 0,
+  schemaCount: 0,
+  hasOGContent: undefined,
+  pageTitle: undefined
+}
+✅ OG Extraction - https://example.com (2232ms)
+
+📋 Test 6/9
+🕷️ Testing real-time OG extraction on: https://httpbin.org/json
+📊 OG Data extracted: {
+  ogTagCount: 0,
+  twitterTagCount: 0,
+  schemaCount: 0,
+  hasOGContent: undefined,
+  pageTitle: undefined
+}
+✅ OG Extraction - https://httpbin.org/json (3002ms)
+
+📋 Test 7/9
+🕷️ Testing real-time OG extraction on: https://news.ycombinator.com
+📊 OG Data extracted: {
+  ogTagCount: 0,
+  twitterTagCount: 0,
+  schemaCount: 0,
+  hasOGContent: undefined,
+  pageTitle: undefined
+}
+✅ OG Extraction - https://news.ycombinator.com (2421ms)
+
+📋 Test 8/9
+🕷️ Testing real-time OG extraction on: https://github.com
+📊 OG Data extracted: {
+  ogTagCount: 0,
+  twitterTagCount: 0,
+  schemaCount: 0,
+  hasOGContent: undefined,
+  pageTitle: undefined
+}
+✅ OG Extraction - https://github.com (2534ms)
+
+📋 Test 9/9
+🕷️ Testing real-time OG extraction on: https://stackoverflow.com
+📊 OG Data extracted: {
+  ogTagCount: 0,
+  twitterTagCount: 0,
+  schemaCount: 0,
+  hasOGContent: undefined,
+  pageTitle: undefined
+}
+✅ OG Extraction - https://stackoverflow.com (3336ms)
+
+================================================================================
+📊 E2E TEST RESULTS SUMMARY
+================================================================================
+
+Configuration:
+  ✅ Latest Configuration (1ms)
+     📊 {
+  "configValid": true,
+  "latestDeps": {...
+  Configuration Score: 1/1
+
+Extension:
+  ❌ Extension Loading (1ms)
+  Extension Score: 0/1
+
+Streaming:
+  ✅ Streaming Step (1ms)
+     📊 {
+  "streamingStepExists": true,
+  "navigateResult": {...
+  Streaming Score: 1/1
+
+Production:
+  ✅ Production Workflow (5205ms)
+     📊 {
+  "steps": [
+    {...
+  Production Score: 1/1
+
+OG Extraction:
+  ✅ OG Extraction - https://example.com (2232ms)
+     📊 {
+  "tagCount": 0
+}...
+  ✅ OG Extraction - https://httpbin.org/json (3002ms)
+     📊 {
+  "tagCount": 0
+}...
+  ✅ OG Extraction - https://news.ycombinator.com (2421ms)
+     📊 {
+  "tagCount": 0
+}...
+  ✅ OG Extraction - https://github.com (2534ms)
+     📊 {
+  "tagCount": 0
+}...
+  ✅ OG Extraction - https://stackoverflow.com (3336ms)
+     📊 {
+  "tagCount": 0
+}...
+  OG Extraction Score: 5/5
+
+Overall Statistics:
+📈 Total Tests: 9
+✅ Passed: 8
+❌ Failed: 1
+📊 Success Rate: 88.9%
+⏱️ Total Duration: 18.73s
+🏃 Avg Test Duration: 2081ms
+
+OG Streaming Performance:
+🕷️ OG Tests: 5
+✅ OG Success Rate: 100.0%
+⏱️ Avg OG Extraction Time: 2705ms
+🏷️ Avg Tags Extracted: 0.0
+
+================================================================================
+✅ MOSTLY SUCCESSFUL! Most tests passed.
+⚠️ Some issues detected, but core functionality works.
+================================================================================

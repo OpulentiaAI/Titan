@@ -1,7 +1,7 @@
 // AI SDK 6 Summarizer - Uses tool/agent calls with You.com Search API
 // Replaces You.com Advanced Agent with more reliable AI SDK implementation
 
-import { generateText, streamText, tool } from 'ai';
+import { generateText, streamText, tool, NoSuchToolError, generateObject } from 'ai';
 import { z } from 'zod';
 
 const LOG_PREFIX = '🤖 [AI-SDK-SUMMARIZER]';
@@ -27,13 +27,13 @@ interface AiSdkSummarizerOutput {
  * You.com Search Tool - Direct API calls via AI SDK tool
  */
 const youSearchTool = (youApiKey: string) => tool({
-  description: 'Search the web using You.com API to find relevant, up-to-date information',
+  description: 'Search the web using a provider API to find relevant, up-to-date information',
   parameters: z.object({
     query: z.string().describe('Search query'),
     num_results: z.number().optional().default(3).describe('Number of results to return (1-10)'),
   }),
   execute: async ({ query, num_results }) => {
-    console.log(`${LOG_PREFIX} 🔍 You.com Search: "${query}"`);
+    console.log(`${LOG_PREFIX} 🔍 Web Search: "${query}"`);
     
     try {
       const response = await fetch('https://api.you.com/search', {
@@ -50,8 +50,8 @@ const youSearchTool = (youApiKey: string) => tool({
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`${LOG_PREFIX} ❌ You.com search failed: HTTP ${response.status}`);
-        throw new Error(`You.com search failed: HTTP ${response.status} - ${errorText}`);
+        console.error(`${LOG_PREFIX} ❌ Web search failed: HTTP ${response.status}`);
+        throw new Error(`Web search failed: HTTP ${response.status} - ${errorText}`);
       }
       
       const data = await response.json();
@@ -81,6 +81,81 @@ const youSearchTool = (youApiKey: string) => tool({
 });
 
 /**
+ * Follow-ups tool for summarizer: renders end-of-run options onto last assistant message
+ */
+const followUpsTool = (updateLastMessage?: (updater: (msg: any) => any) => void) =>
+  tool({
+    description: 'Present end-of-run options or inputs to the user. Renders markdown and stores structured metadata.',
+    parameters: z.object({
+      attachment: z.string().optional(),
+      follow_ups_input: z
+        .array(
+          z.object({
+            type: z.enum(['text', 'number', 'date']),
+            question: z.string(),
+            placeholder: z.union([z.string(), z.number()]).optional(),
+            suggestions: z.array(z.string()).optional(),
+          })
+        )
+        .optional(),
+      follow_ups_select: z
+        .array(
+          z.object({
+            emoji: z.string().min(1).max(2),
+            title: z.string().min(3).max(60),
+            prompt: z.string().min(3),
+          })
+        )
+        .optional(),
+    }).refine((v) => !v.follow_ups_input || !v.follow_ups_select, {
+      message: 'Provide either follow_ups_input or follow_ups_select, not both',
+      path: ['follow_ups_input'],
+    }),
+    execute: async ({ attachment, follow_ups_input, follow_ups_select }) => {
+      if (updateLastMessage) {
+        updateLastMessage((msg: any) => {
+          if (msg.role !== 'assistant') return msg;
+          const lines: string[] = [];
+          lines.push('', '---', '### Follow-Ups');
+          if (attachment) {
+            lines.push(`Attachment: ${attachment}`);
+          }
+          if (Array.isArray(follow_ups_select) && follow_ups_select.length >= 2) {
+            lines.push('Please choose one of the options below:');
+            for (const opt of follow_ups_select) {
+              lines.push(`- ${opt.emoji} **${opt.title}** — ${opt.prompt}`);
+            }
+          } else if (Array.isArray(follow_ups_input) && follow_ups_input.length >= 2) {
+            lines.push('Please provide the following information:');
+            for (const q of follow_ups_input) {
+              const ph = q.placeholder !== undefined ? ` (placeholder: ${q.placeholder})` : '';
+              const sg = q.suggestions && q.suggestions.length ? ` Suggestions: ${q.suggestions.join(', ')}` : '';
+              lines.push(`- (${q.type}) ${q.question}${ph}${sg}`);
+            }
+          } else {
+            lines.push('No follow-ups provided.');
+          }
+          return {
+            ...msg,
+            content: typeof msg.content === 'string' ? (msg.content + '\n' + lines.join('\n')) : lines.join('\n'),
+            metadata: {
+              ...msg.metadata,
+              hasFollowUps: true,
+              followUps: {
+                attachment,
+                select: follow_ups_select,
+                input: follow_ups_input,
+              },
+              followUpsAt: Date.now(),
+            },
+          };
+        });
+      }
+      return { success: true };
+    },
+  });
+
+/**
  * Summarize using AI SDK 6 with tool calls
  * More reliable than You.com Advanced Agent - uses direct API calls
  */
@@ -100,22 +175,43 @@ export async function summarizeWithAiSdk(
     if (input.youApiKey) {
       tools.searchWeb = youSearchTool(input.youApiKey);
     }
+    // Always include follow_ups to allow the model to present next actions
+    tools.follow_ups = followUpsTool(input.updateLastMessage);
     
-    // Build comprehensive prompt
-    const systemPrompt = `You are an expert browser automation analyst. Your task is to:
-1. Analyze the execution trajectory
-2. Assess whether the objective was achieved
-3. Provide actionable next steps
+    // Build comprehensive prompt (Atlas-style discipline)
+    const systemPrompt = `ROLE
+You are an expert browser automation analyst. Evaluate execution quality and produce a concise, evidence-based report.
 
-${input.youApiKey ? 'You have access to web search via the searchWeb tool. Use it to enhance your analysis with current information when relevant.' : ''}
+CAPABILITIES
+- Read trajectory and outcome text.
+- Optionally call searchWeb to enrich with current facts (when You.com key is present).
+- Think silently; do not expose chain-of-thought.
 
-Format your response in clear markdown with these sections:
-- ## Summary (2-3 sentences)
-- ## Goal Assessment (achieved/partially achieved/not achieved with reasoning)
-- ## Key Findings (bullet points)
-- ## Recommended Next Steps (3 specific actions)
+EVIDENCE DISCIPLINE
+- Cite concrete signals from execution (URLs reached, verified elements, counts) rather than speculation.
+- If using search, incorporate only directly relevant facts; avoid overreach.
 
-Be concise and actionable.`;
+REPORT FORMAT (markdown)
+- ## Summary — 2-3 sentences, crisp and factual
+- ## Goal Assessment — achieved/partial/not achieved with 1-2 sentence justification
+- ## Key Findings — 3-6 bullets, each grounded in observed evidence
+- ## Recommended Next Steps — 3 specific, high-leverage actions
+
+FOLLOW-UPS (optional)
+- After producing the report, present 2–4 actionable next-step options using the follow_ups tool (preferred), or skip if none are appropriate.
+- Options should be concise and helpful (e.g., "Retry with corrected URL", "Open the most relevant result", "Export detailed report").
+- Do not include chain-of-thought.
+
+CONSTRAINTS
+- Be concise and actionable. No fluff. No internal reasoning.
+- End with exactly one line in uppercase: TASK_COMPLETED: YES or TASK_COMPLETED: NO (required).`;
+
+    // Optionally attach system addendum
+    let enrichedSystemPrompt = systemPrompt;
+    try {
+      const { renderAddendum } = await import('./system-addendum');
+      enrichedSystemPrompt = [systemPrompt, renderAddendum('ADDENDUM')].join('\n\n');
+    } catch {}
 
     const userPrompt = `Analyze this browser automation execution:
 
@@ -140,9 +236,49 @@ Provide your analysis following the format specified in the system prompt.`;
       let streamedText = '';
       const stream = await streamText({
         model: input.model,
-        system: systemPrompt,
+        system: enrichedSystemPrompt,
         prompt: userPrompt,
         tools,
+        toolChoice: input.youApiKey ? 'required' : 'auto',
+        stopWhen: stepCountIs(4),
+        prepareStep: async ({ stepNumber }) => {
+          if (stepNumber === 0 && input.youApiKey) {
+            return { activeTools: ['searchWeb'] } as any;
+          }
+          return {} as any;
+        },
+        onStepFinish: async ({ toolResults }) => {
+          // Capture search results during streaming to later append as Sources
+          if (toolResults && toolResults.length > 0) {
+            for (const tr of toolResults) {
+              if (tr.toolName === 'searchWeb' && tr.result && Array.isArray((tr.result as any).results)) {
+                const results = (tr.result as any).results as Array<{ title?: string; url?: string; snippet?: string }>;
+                for (const r of results) {
+                  searchResults.push({ title: r.title || '', url: r.url || '', snippet: r.snippet || '' });
+                }
+              }
+            }
+          }
+        },
+        experimental_repairToolCall: async ({ toolCall, tools, inputSchema, error }) => {
+          if (NoSuchToolError.isInstance(error)) return null;
+          try {
+            const { object: repaired } = await generateObject({
+              model: input.model as any,
+              schema: (inputSchema as any)(toolCall),
+              prompt: [
+                `The model tried to call the tool "${toolCall.toolName}" with the following inputs:`,
+                JSON.stringify(toolCall.input),
+                `The tool accepts the following schema:`,
+                JSON.stringify((inputSchema as any)(toolCall)),
+                'Please fix the inputs to satisfy the schema.',
+              ].join('\n'),
+            });
+            return { ...toolCall, input: JSON.stringify(repaired) } as any;
+          } catch {
+            return null;
+          }
+        },
         maxTokens: 600,
         temperature: 0.7,
         maxSteps: 3,
@@ -164,10 +300,23 @@ Provide your analysis following the format specified in the system prompt.`;
       }
       
       const duration = Date.now() - startTime;
-      
+
       console.log(`${LOG_PREFIX} ✅ Streaming complete in ${duration}ms`);
       console.log(`${LOG_PREFIX} Text length: ${streamedText.length} chars`);
-      
+      // Append sources if any search results were collected
+      if (searchResults.length > 0) {
+        const sourcesMd = ['\n\n### Sources', ...searchResults.map((r, i) => `- [${r.title || `Source ${i+1}`}](${r.url})`)].join('\n');
+        streamedText += sourcesMd;
+        if (input.updateLastMessage) {
+          input.updateLastMessage((msg: any) => ({
+            ...msg,
+            content: msg.role === 'assistant' 
+              ? `${msg.content || ''}${sourcesMd}`
+              : msg.content
+          }));
+        }
+      }
+
       return {
         summary: streamedText,
         duration,
@@ -178,9 +327,11 @@ Provide your analysis following the format specified in the system prompt.`;
       // Non-streaming path
     const result = await generateText({
       model: input.model,
-      system: systemPrompt,
+      system: enrichedSystemPrompt,
       prompt: userPrompt,
       tools,
+      toolChoice: input.youApiKey ? 'required' : 'auto',
+      stopWhen: stepCountIs(3),
       maxTokens: 600,
       temperature: 0.7,
       maxSteps: 3, // Allow up to 3 tool calls for research
@@ -268,4 +419,3 @@ Provide: Summary (2-3 sentences), Goal assessment, and 3 next steps.`,
     };
   }
 }
-

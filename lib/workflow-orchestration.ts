@@ -2,7 +2,7 @@
 // Integrates DeepResearch-inspired efficiency patterns into existing architecture
 // Fully compatible with browser-automation-workflow.ts
 
-import { logEvent, logStepProgress } from './braintrust';
+import { logEvent, logStepProgress } from './braintrust.ts';
 import {
   expandQueryForBrowserAutomation,
   evaluateBrowserAutomationResult,
@@ -12,7 +12,9 @@ import {
   enhancePlanningWithOrthogonality,
   SmartCache,
   latencyOptimizer,
-} from './orchestration-enhancements';
+} from './orchestration-enhancements.ts';
+import { expandQueryWithSubmodularOptimization } from './submodular-query-optimization.ts';
+import { orchestrationDebug } from './debug-logger.ts';
 
 /**
  * Enhanced Planning with Query Expansion
@@ -35,7 +37,7 @@ export async function enhancedPlanningStep(
     // Step 1: Expand query with submodular-optimized diverse variations
     console.log('🔍 [ENHANCED-PLANNING] Expanding query...');
     const expanded = await expandQueryForBrowserAutomation(originalQuery, model);
-    console.log('🔍 [ENHANCED-PLANNING] Query expanded', { variations: expanded.variations.length });
+    console.log('🔍 [ENHANCED-PLANNING] Query expanded', JSON.stringify({ variations: expanded.variations.length }, null, 2));
     
     // Step 2: Use best diverse variation for planning
     // Submodular optimization ensures the selected variations are:
@@ -58,7 +60,7 @@ export async function enhancedPlanningStep(
     console.log('🔍 [ENHANCED-PLANNING] Calling planning function...');
     const planResult = await planningFn(bestQuery);
     const planningDuration = Date.now() - planningStart;
-    console.log('🔍 [ENHANCED-PLANNING] Planning function completed', { duration: planningDuration });
+    console.log('🔍 [ENHANCED-PLANNING] Planning function completed', JSON.stringify({ duration: planningDuration }, null, 2));
     latencyOptimizer.record('planning', planningDuration);
     
     // Step 4: Enhance plan with orthogonality check
@@ -84,7 +86,7 @@ export async function enhancedPlanningStep(
     }
     
     const totalDuration = Date.now() - startTime;
-    console.log('🔍 [ENHANCED-PLANNING] Enhanced planning complete', { totalDuration });
+    console.log('🔍 [ENHANCED-PLANNING] Enhanced planning complete', JSON.stringify({ totalDuration }, null, 2));
     
     logEvent('enhanced_planning_complete', {
       duration: totalDuration,
@@ -379,4 +381,3 @@ export async function evaluateFinalResult(
     improvementSuggestions: improvementSuggestions.length > 0 ? improvementSuggestions : undefined,
   };
 }
-

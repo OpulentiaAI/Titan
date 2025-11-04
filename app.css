@@ -6,36 +6,60 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-/* GT America Font Family (Grilli Type)                                         */
+/* OpenAI Sans + GT America Mono                                              */
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 @font-face {
-  font-family: 'GT America';
-  src: url('/fonts/gt-america/GT-America-Standard-Regular-Trial.otf') format('opentype');
+  font-family: 'OpenAI Sans';
+  src: url('/fonts/openai-sans/OpenAI-Sans-Light.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenAI Sans';
+  src: url('/fonts/openai-sans/OpenAI-Sans-LightItalic.otf') format('opentype');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenAI Sans';
+  src: url('/fonts/openai-sans/OpenAI-Sans-Regular.otf') format('opentype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'GT America';
-  src: url('/fonts/gt-america/GT-America-Standard-Regular-Italic-Trial.otf') format('opentype');
+  font-family: 'OpenAI Sans';
+  src: url('/fonts/openai-sans/OpenAI-Sans-Italic.otf') format('opentype');
   font-weight: 400;
   font-style: italic;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'GT America';
-  src: url('/fonts/gt-america/GT-America-Standard-Medium-Trial.otf') format('opentype');
+  font-family: 'OpenAI Sans';
+  src: url('/fonts/openai-sans/OpenAI-Sans-Medium.otf') format('opentype');
   font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'GT America';
-  src: url('/fonts/gt-america/GT-America-Standard-Bold-Trial.otf') format('opentype');
+  font-family: 'OpenAI Sans';
+  src: url('/fonts/openai-sans/OpenAI-Sans-Semibold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenAI Sans';
+  src: url('/fonts/openai-sans/OpenAI-Sans-Bold.otf') format('opentype');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -63,6 +87,59 @@
   font-weight: 700;
   font-style: normal;
   font-display: swap;
+}
+
+/* Adopt global theming from reference (retain our tokens) */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: 'OpenAI Sans', system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: 'GT America Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-xs: calc(var(--radius) - 8px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --animate-shimmer: shimmer 2s ease-in-out infinite;
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { @apply h-full; }
+  body { @apply bg-background text-foreground h-full; font-family: 'OpenAI Sans', system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans"; }
 }
 
 /* --- Theme tokens (OKLCH) --- */
@@ -98,7 +175,7 @@
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
 
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 
   /* Sidebar */
   --sidebar: oklch(0.985 0 0);
@@ -966,4 +1043,3 @@
     opacity: 1;
   }
 }
-

@@ -270,8 +270,16 @@ async function optimizePrompt(promptName: string, batchSize: number, rollouts: n
     systemPrompt = systemPromptMatch[1];
   }
   
-  // Load samples
-  const samplesFile = join(__dirname, promptName, '.dspyground/data/samples.json');
+  // Load samples (use focused dataset for 20-sample optimization)
+  const focusedSamplesFile = join(__dirname, promptName, '.dspyground/data/focused-samples.json');
+  const fallbackSamplesFile = join(__dirname, promptName, '.dspyground/data/samples.json');
+  
+  let samplesFile = focusedSamplesFile;
+  if (!existsSync(focusedSamplesFile)) {
+    console.log(`⚠️  Focused dataset not found, using full dataset: ${fallbackSamplesFile}`);
+    samplesFile = fallbackSamplesFile;
+  }
+  
   const samplesData = JSON.parse(readFileSync(samplesFile, 'utf-8'));
   const allSamples: Sample[] = samplesData.groups.flatMap((g: any) => g.samples || []);
   

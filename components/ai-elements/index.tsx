@@ -2,11 +2,12 @@
 // Adapted from https://github.com/FranciscoMoretti/sparka/tree/main/components/ai-elements
 
 export * from './actions';
+export * from './branch';
 export * from './code-block';
 export * from './context';
 export * from './message';
 export * from './response';
 export * from './reasoning';
+export * from './sources';
 export * from './conversation';
 export * from './prompt-input';
-

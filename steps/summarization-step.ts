@@ -2,8 +2,8 @@
 // Feature flag: useYouAdvancedAgent (deprecated) vs useAiSdkToolCalls (default)
 
 import type { SummarizationStepOutput } from '../schemas/workflow-schemas';
-import { summarizerDebug } from '../lib/debug-logger';
-import { isFeatureEnabled } from '../lib/feature-flags';
+import { summarizerDebug } from '../lib/debug-logger.ts';
+import { isFeatureEnabled } from '../lib/feature-flags.ts';
 
 interface SummarizationStepInput {
   youApiKey: string;
@@ -39,6 +39,37 @@ export async function summarizationStep(
   // Check feature flags
   const useYouAdvancedAgent = isFeatureEnabled('useYouAdvancedAgent');
   const useAiSdkToolCalls = isFeatureEnabled('useAiSdkToolCalls');
+
+  // Helper: infer binary completion from explicit marker or heuristics
+  const inferTaskCompletion = (outcomeText: string | undefined, summaryText: string | undefined): boolean => {
+    const s = (summaryText || '').toLowerCase();
+    const o = (outcomeText || '').toLowerCase();
+    // Prefer explicit marker from AI SDK summarizer
+    const markerMatch = (summaryText || '').match(/TASK_COMPLETED:\s*(YES|NO)/i);
+    if (markerMatch) {
+      return markerMatch[1].toUpperCase() === 'YES';
+    }
+    // Heuristics from outcome text
+    const positive = /(success|succeeded|completed|achieved|done|finished)/.test(o);
+    const negative = /(fail|failed|error|not achieved|incomplete|blocked|timeout)/.test(o);
+    if (positive && !negative) return true;
+    if (negative && !positive) return false;
+    // Heuristics from summary text if outcome inconclusive
+    const sPos = /(goal achieved|objective achieved|completed successfully)/.test(s);
+    const sNeg = /(not achieved|failed|incomplete|did not complete)/.test(s);
+    if (sPos && !sNeg) return true;
+    if (sNeg && !sPos) return false;
+    // Additional guard: require at least one getPageContext after the last navigate in the outcome
+    const lines = (outcomeText || '').split(/\n+/).map(l => l.trim());
+    const idxNavigate = [...lines].reverse().findIndex(l => /step\s+\d+.*navigate/i.test(l));
+    if (idxNavigate >= 0) {
+      const lastNavIndex = lines.length - 1 - idxNavigate;
+      const hasContextAfterNav = lines.slice(lastNavIndex + 1).some(l => /getpagecontext/i.test(l));
+      if (!hasContextAfterNav) return false;
+    }
+    // Default conservative: not completed
+    return false;
+  };
   
   summarizerDebug.info('Starting summarization step', {
     useYouAdvancedAgent,
@@ -60,7 +91,7 @@ export async function summarizationStep(
   // ============================================
   if (useAiSdkToolCalls && input.fallbackModel && input.fallbackApiKey) {
     try {
-      console.log('🤖 [SUMMARIZATION] Using AI SDK 6 with tool calls (feature flag enabled)');
+      console.log('🤖 [SUMMARIZATION] Using AI SDK with tool calls (feature flag enabled)');
       
       const { summarizeWithAiSdk } = await import('../lib/ai-sdk-summarizer');
       
@@ -76,17 +107,28 @@ export async function summarizationStep(
       
       if (aiSdkResult.success && aiSdkResult.summary) {
         const stepCount = (input.trajectory.match(/step \d+/g) || []).length;
+        const taskCompleted = inferTaskCompletion(input.outcome, aiSdkResult.summary);
         
         console.log('✅ [SUMMARIZATION] AI SDK summarization successful', {
           duration: aiSdkResult.duration,
           summaryLength: aiSdkResult.summary.length,
           searchResultsUsed: aiSdkResult.searchResults?.length || 0,
         });
-        
+        // Append Sources section if search results were collected (non-streaming mode)
+        let finalSummaryText = aiSdkResult.summary;
+        if (Array.isArray((aiSdkResult as any).searchResults) && (aiSdkResult as any).searchResults.length > 0) {
+          const sources = (aiSdkResult as any).searchResults
+            .slice(0, 10)
+            .map((r: any) => `- ${r.title || r.url} (${r.url || ''})`)
+            .join('\n');
+          finalSummaryText = [finalSummaryText.trim(), '', 'Sources:', sources].join('\n');
+        }
+
         return {
-          summary: aiSdkResult.summary,
+          summary: finalSummaryText,
           duration: aiSdkResult.duration,
           success: true,
+          taskCompleted,
           trajectoryLength: input.trajectory.length,
           stepCount,
         };
@@ -135,6 +177,8 @@ export async function summarizationStep(
         input.outcome,
         '',
         '**Your task:** Summarize the execution trajectory, assess whether the objective was achieved and why, then propose exactly three high-impact next actions tailored to this context (include a short rationale and the recommended browser action or tool to execute). Return concise Markdown with sections: Summary, Goal assessment, Suggested next actions (1-3).',
+        '',
+        'Finish with exactly one final line in UPPERCASE: TASK_COMPLETED: YES or TASK_COMPLETED: NO',
       ].join('\n');
 
       try {
@@ -284,7 +328,7 @@ export async function summarizationStep(
       const duration = Date.now() - startTime;
       const stepCount = (input.trajectory.match(/step \d+/g) || []).length;
 
-      console.log('🔍 [SUMMARIZATION] You.com API successful:', {
+      console.log('🔍 [SUMMARIZATION] Web search API successful:', {
         usedAgentsApi,
         duration,
         summaryLength: summary.length,
@@ -294,6 +338,7 @@ export async function summarizationStep(
         summary,
         duration,
         success: true,
+        taskCompleted: inferTaskCompletion(input.outcome, summary),
         trajectoryLength: input.trajectory.length,
         stepCount,
       };
@@ -304,7 +349,7 @@ export async function summarizationStep(
     } catch (error: any) {
       // Fall through to fallback logic below
       const errorMsg = error?.message || String(error);
-      console.error('❌ [SUMMARIZATION] You.com API failed:', errorMsg);
+      console.error('❌ [SUMMARIZATION] Web search API failed:', errorMsg);
       console.error('❌ [SUMMARIZATION] Error type:', error?.name || typeof error);
       
       summarizerDebug.error('You.com summarization failed', {
@@ -316,7 +361,7 @@ export async function summarizationStep(
       });
       
       if (errorMsg.includes('401') || errorMsg.includes('Invalid or expired API key')) {
-        console.error('❌ [SUMMARIZATION] Authentication error - check You.com API key');
+        console.error('❌ [SUMMARIZATION] Authentication error - check web search API key');
       } else if (errorMsg.includes('403') || errorMsg.includes('Forbidden')) {
         console.error('❌ [SUMMARIZATION] Forbidden - check API key permissions');
       } else if (errorMsg.includes('timed out')) {
@@ -361,6 +406,8 @@ export async function summarizationStep(
         input.outcome,
         '',
         '**Your task:** Summarize the execution trajectory, assess whether the objective was achieved and why, then propose exactly three high-impact next actions tailored to this context (include a short rationale and the recommended browser action or tool to execute). Return concise Markdown with sections: Summary, Goal assessment, Suggested next actions (1-3).',
+        '',
+        'Finish with exactly one final line in UPPERCASE: TASK_COMPLETED: YES or TASK_COMPLETED: NO',
       ].join('\n');
       
       console.log('🔍 [SUMMARIZATION] Preparing to call generateText...');
@@ -449,6 +496,7 @@ export async function summarizationStep(
         summary: finalSummary,
         duration: fallbackDuration,
         success: true,
+        taskCompleted: inferTaskCompletion(input.outcome, finalSummary),
         trajectoryLength: input.trajectory.length,
         stepCount,
       };
@@ -485,6 +533,7 @@ export async function summarizationStep(
     summary: '', // Empty summary - workflow will continue without it
     duration,
     success: false,
+    taskCompleted: false,
     trajectoryLength: input.trajectory.length,
     stepCount: 0,
   };

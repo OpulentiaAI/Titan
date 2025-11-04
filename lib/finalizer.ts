@@ -2,7 +2,7 @@
 // Polishes and finalizes workflow reports with editor-style refinement
 
 export interface FinalizerOptions {
-  provider: 'google' | 'gateway';
+  provider: 'google' | 'gateway' | 'nim' | 'openrouter';
   apiKey: string;
   model?: string;
   braintrustApiKey?: string;
@@ -20,6 +20,7 @@ export async function finalizeReport(
   opts: FinalizerOptions
 ): Promise<string> {
   const { generateText } = await import('ai');
+  const { renderAddendum } = await import('./system-addendum');
 
   // Pick model for finalization
   let model: any;
@@ -27,6 +28,20 @@ export async function finalizeReport(
     const { createGateway } = await import('@ai-sdk/gateway');
     const client = createGateway({ apiKey: opts.apiKey });
     model = client(opts.model || 'google:gemini-2.0-flash-exp');
+  } else if (opts.provider === 'nim') {
+    const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+    const client = createOpenAICompatible({
+      name: 'nim',
+      baseURL: 'https://integrate.api.nvidia.com/v1',
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+    });
+    model = client.chatModel(opts.model || 'deepseek-ai/deepseek-r1');
+  } else if (opts.provider === 'openrouter') {
+    const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+    const client = createOpenRouter({ apiKey: opts.apiKey });
+    model = client(opts.model || 'minimax/minimax-m2');
   } else {
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
     const client = createGoogleGenerativeAI({ apiKey: opts.apiKey });
@@ -44,7 +59,7 @@ export async function finalizeReport(
     })
     .join('\n\n');
 
-  const systemPrompt = `You are a senior editor with multiple best-selling books and columns published in top magazines. You break conventional thinking, establish unique cross-disciplinary connections, and bring new perspectives to the user.
+  const baseSystemPrompt = `You are a senior editor with multiple best-selling books and columns published in top magazines. You break conventional thinking, establish unique cross-disciplinary connections, and bring new perspectives to the user.
 
 Your task is to revise the provided markdown content (written by your junior intern) while preserving its original vibe, delivering a polished and professional version.
 
@@ -89,6 +104,8 @@ ${knowledgeStr ? `The following knowledge items are provided for your reference.
 
 IMPORTANT: Do not begin your response with phrases like "Sure", "Here is", "Below is", or any other introduction. Directly output your revised content in ${opts.languageStyle || 'English'} that is ready to be published. Preserving HTML tables if exist, never use triple backticks html to wrap html table.`;
 
+  const systemPrompt = [baseSystemPrompt, renderAddendum('ADDENDUM')].join('\n\n');
+
   try {
     const result = await generateText({
       model,
@@ -110,4 +127,3 @@ IMPORTANT: Do not begin your response with phrases like "Sure", "Here is", "Belo
     return mdContent;
   }
 }
-

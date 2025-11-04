@@ -2,25 +2,58 @@ import { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Settings } from './types';
 
+// Streamlined providers - only AI Gateway and OpenRouter
+const PROVIDERS = [
+  { id: 'gateway' as const, name: 'AI Gateway (Google Gemini)', description: '✅ Optimized for browser automation' },
+  { id: 'openrouter' as const, name: 'OpenRouter', description: '🌐 Access to OpenAI, Anthropic, and more' },
+];
+
+// Streamlined models - only minimax, openai, and gemini families
 const GATEWAY_MODELS = [
-  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: '🚀 #1 ranked for images/tool calls (34.3% market share) - Best for browser automation' },
-  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '⚡ Fast and efficient (#3 ranked)' },
-  { id: 'google/gemini-2.5-flash-lite-preview-09-2025', name: 'Gemini 2.5 Flash Lite (Preview)', description: 'Preview version - fallback option' },
-  { id: 'google/gemini-2.5-flash-preview-10-2025', name: 'Gemini 2.5 Flash (Preview)', description: 'Preview version - fallback option' },
-  { id: 'google/gemini-2.5-pro-preview-10-2025', name: 'Gemini 2.5 Pro', description: '1M token context - for complex tasks' },
+  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '🚀 #1 ranked for images/tool calls (34.3% market share) - Best for browser automation' },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '🏆 Most capable Gemini with 1M token context' },
+  { id: 'google/gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: '⚡ Fast and efficient Gemini' },
+];
+
+const OPENROUTER_MODELS = [
+  // OpenAI family
+  { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo', description: '🚀 Latest GPT-4 with 128K context' },
+  { id: 'openai/gpt-4o', name: 'GPT-4o', description: '⚡ Optimized for speed and cost' },
+  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', description: '💨 Fast and affordable' },
+
+  // Anthropic family via OpenRouter
+  { id: 'anthropic/claude-opus-4', name: 'Claude Opus 4', description: '🏆 Flagship model - Best coding model with 200K context' },
+  { id: 'anthropic/claude-opus-4.1', name: 'Claude Opus 4.1', description: '🚀 Updated flagship with improved coding and reasoning' },
+  { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', description: '⚡ Balanced performance with 1M context and enhanced coding' },
+  { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', description: '🧠 Most advanced Sonnet for real-world agents and coding' },
+  { id: 'anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5', description: '⚡ Fastest Claude with frontier intelligence and 200K context' },
+  { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', description: '🧠 Advanced reasoning with hybrid thinking and 200K context' },
+  { id: 'anthropic/claude-3.7-sonnet-thinking', name: 'Claude 3.7 Sonnet (Thinking)', description: '🧠 Enhanced reasoning with step-by-step processing' },
+  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', description: '⚡ Fast and capable with superior performance' },
+  { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (Oct 2024)', description: '🧠 Latest 3.5 Sonnet with improvements' },
+  { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku', description: '⚡ Fast and efficient Claude model' },
+  { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', description: '🏆 Most capable Claude 3 model' },
+
+  // Minimax family
+  { id: 'minimax/minimax-m2:free', name: 'Minimax M2 (Free)', description: '🧠 Compact, high-efficiency LLM optimized for coding and agentic workflows' },
+
+  // Gemini family via OpenRouter
+  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '⚡ Fast and efficient with improved capabilities' },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '🏆 Most capable Gemini with 1M token context' },
+  { id: 'google/gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: '🔥 Long context with 1M tokens' },
 ];
 
 function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
     provider: 'gateway',
     apiKey: 'vck_8Y9AYNnloksx9iwr4HkTdwpz1IyeszKLtvbEitKEwFj6LRCim14fhM9U',
-    model: 'google/gemini-2.5-flash-lite', // Optimized: #1 ranked model for browser automation
+    model: 'google/gemini-2.5-flash', // Corrected: use proper Gemini model
     toolMode: 'tool-router',
     composioApiKey: '',
     youApiKey: 'ydc-sk-73e008775485cecf-7amBugk9VyOK17smt4LzLwcrVQ5K6UBK-14332916<__>1SO0a7ETU8N2v5f4EbzspvJg',
     braintrustApiKey: '',
     braintrustProjectName: 'atlas-extension',
-    computerUseEngine: 'gateway-flash-lite',
+    computerUseEngine: 'gateway-flash', // Corrected: use proper engine name
     devtoolsEnabled: true, // Enabled by default to show streaming events, tool calls, and metrics
   });
   const [saved, setSaved] = useState(false);
@@ -28,6 +61,65 @@ function SettingsPage() {
   const [showComposioKey, setShowComposioKey] = useState(false);
   const [showYouKey, setShowYouKey] = useState(false);
   const [showBraintrustKey, setShowBraintrustKey] = useState(false);
+
+  // Helper to get models for current provider
+  const getModelsForProvider = (provider: string) => {
+    switch (provider) {
+      case 'openrouter':
+        return OPENROUTER_MODELS;
+      case 'gateway':
+      default:
+        return GATEWAY_MODELS;
+    }
+  };
+
+  // Helper to get API key label for current provider
+  const getApiKeyLabel = (provider: string) => {
+    switch (provider) {
+      case 'openrouter':
+        return 'OpenRouter API Key';
+      case 'gateway':
+      default:
+        return 'AI Gateway API Key';
+    }
+  };
+
+  // Helper to get API key help text for current provider
+  const getApiKeyHelpText = (provider: string) => {
+    switch (provider) {
+      case 'openrouter':
+        return (
+          <>
+            Get your API key from:{' '}
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">
+              OpenRouter Dashboard
+            </a>{' '}
+            (provides access to Claude, GPT-4, Llama, and more models)
+          </>
+        );
+      case 'nim':
+        return (
+          <>
+            Get your API key from:{' '}
+            <a href="https://build.nvidia.com/explore/discover" target="_blank" rel="noopener noreferrer">
+              NVIDIA NIM
+            </a>{' '}
+            (provides NVIDIA accelerated inference for Llama and other models)
+          </>
+        );
+      case 'gateway':
+      default:
+        return (
+          <>
+            Get your API key from:{' '}
+            <a href="https://vercel.com/docs/ai/ai-gateway" target="_blank" rel="noopener noreferrer">
+              Vercel AI Gateway
+            </a>{' '}
+            (provides access to all Google Gemini models)
+          </>
+        );
+    }
+  };
 
   useEffect(() => {
     // Load settings from chrome.storage
@@ -46,13 +138,13 @@ function SettingsPage() {
 
         const mergedSettings: Settings = {
           ...result.atlasSettings,
-          // Always use gateway defaults if missing OR if migration needed
-          provider: 'gateway', // Force gateway provider
+          // Browser tools are now mandatory - preserve user's model choice
+          provider: 'gateway', // Use AI Gateway for browser automation
           apiKey: result.atlasSettings.apiKey || defaultApiKey,
           model: needsMigration
-            ? 'google/gemini-2.5-flash-lite' // Optimized: #1 ranked model
-            : (result.atlasSettings.model || 'google/gemini-2.5-flash-lite'), // Optimized default
-          computerUseEngine: 'gateway-flash-lite', // Force gateway-flash-lite
+            ? 'google/gemini-2.5-flash' // Optimized: #1 ranked model
+            : (result.atlasSettings.model || 'google/gemini-2.5-flash'), // Keep user's choice or default
+          computerUseEngine: 'gateway', // Use gateway engine (not flash-lite specific)
           devtoolsEnabled: !!result.atlasSettings.devtoolsEnabled,
         };
 
@@ -69,16 +161,17 @@ function SettingsPage() {
         }
       } else {
         // If no settings exist, use defaults with AI Gateway + Google Gemini
+        // User can now select any model - browser tools are mandatory
         const defaultSettings: Settings = {
           provider: 'gateway',
           apiKey: defaultApiKey,
-          model: 'google/gemini-2.5-flash-lite', // Optimized: #1 ranked model for browser automation
+          model: 'google/gemini-2.5-flash', // Default model (user can change)
           toolMode: 'tool-router',
           composioApiKey: '',
           youApiKey: '',
           braintrustApiKey: '',
           braintrustProjectName: 'atlas-extension',
-          computerUseEngine: 'gateway-flash-lite',
+          computerUseEngine: 'gateway', // Use gateway engine
           devtoolsEnabled: true, // Enabled by default for debugging visibility
         };
         setSettings(defaultSettings);
@@ -110,42 +203,75 @@ function SettingsPage() {
 
       <div className="settings-content">
         <div className="info-box" style={{ marginBottom: '24px', background: '#e3f2fd', border: '1px solid #2196f3' }}>
-          <h3>✅ Optimized Configuration</h3>
-          <p>Using AI Gateway with Google Gemini models - proven reliable for browser automation with 98% success rate in production tests.</p>
+          <h3>🤖 AI Provider Configuration</h3>
+          <p>Choose your AI provider and configure models. AI Gateway (Google Gemini) is optimized for browser automation with 98% success rate in production tests.</p>
         </div>
 
         <div className="setting-group">
-          <label>Google Gemini Model (via AI Gateway)</label>
+          <label>AI Provider</label>
+          <select
+            value={settings.provider}
+            onChange={(e) => {
+              const newProvider = e.target.value as 'gateway' | 'openrouter' | 'nim';
+              const newModels = getModelsForProvider(newProvider);
+              const defaultModel = newModels[0].id;
+              setSettings({
+                ...settings,
+                provider: newProvider,
+                model: defaultModel,
+                // Browser tools are now mandatory - use appropriate engine for the provider
+                computerUseEngine: newProvider === 'google' ? 'google' : 'gateway',
+              });
+            }}
+            className="model-select"
+            aria-label="Select AI provider"
+          >
+            {PROVIDERS.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name} - {provider.description}
+              </option>
+            ))}
+          </select>
+          <p className="help-text">
+            Select the AI provider you want to use. Each provider offers different models and capabilities.
+          </p>
+        </div>
+
+        <div className="setting-group">
+          <label>Model</label>
           <select
             value={settings.model}
-            onChange={(e) => setSettings({ ...settings, model: e.target.value, provider: 'gateway', computerUseEngine: 'gateway-flash-lite' })}
+            onChange={(e) => setSettings({ ...settings, model: e.target.value })}
             className="model-select"
             aria-label="Select model"
           >
-            {GATEWAY_MODELS.map((model) => (
+            {getModelsForProvider(settings.provider).map((model) => (
               <option key={model.id} value={model.id}>
                 {model.name} - {model.description}
               </option>
             ))}
           </select>
           <p className="help-text">
-            All models use AI Gateway for optimal performance. Flash Lite is recommended for browser automation.
+            {settings.provider === 'gateway'
+              ? 'All models use AI Gateway for optimal performance. Flash Lite is recommended for browser automation.'
+              : settings.provider === 'openrouter'
+              ? 'OpenRouter provides access to multiple AI providers through a single API.'
+              : 'NVIDIA NIM provides NVIDIA-accelerated inference for optimized performance.'}
           </p>
         </div>
 
         <div className="setting-group">
-          <label>Browser Tools Engine</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px', background: '#f5f5f5', borderRadius: '8px' }}>
-            <input
-              type="radio"
-              checked={true}
-              disabled={true}
-              style={{ cursor: 'not-allowed' }}
-            />
-            <label style={{ margin: 0 }}>AI Gateway with Google Gemini (Optimized)</label>
+          <label>Browser Tools</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px', background: '#e8f5e8', borderRadius: '8px', border: '1px solid #4caf50' }}>
+            <span style={{ fontSize: '16px' }}>✅</span>
+            <label style={{ margin: 0, fontWeight: 'bold' }}>
+              Mandatory - Browser automation is now always enabled
+            </label>
           </div>
           <p className="help-text">
-            ✅ Browser automation uses the selected Gemini model above via AI Gateway. This configuration has been validated in production with 98% success rate.
+            🚀 Browser automation uses the selected model above via {settings.provider === 'gateway' ? 'AI Gateway' : settings.provider === 'openrouter' ? 'OpenRouter' : 'Direct provider'}.
+            Choose any model from the Model dropdown above - all are now supported for browser automation.
+            {settings.provider === 'gateway' && ' Gemini models recommended for optimal performance.'}
           </p>
         </div>
 
@@ -202,13 +328,13 @@ function SettingsPage() {
         </div>
 
         <div className="setting-group">
-          <label>AI Gateway API Key</label>
+          <label>{getApiKeyLabel(settings.provider)}</label>
           <div className="api-key-input-wrapper">
             <input
               type={showApiKey ? 'text' : 'password'}
               value={settings.apiKey}
               onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
-              placeholder="Enter your AI Gateway API key"
+              placeholder={`Enter your ${getApiKeyLabel(settings.provider)}`}
               className="api-key-input"
             />
             <button
@@ -220,11 +346,7 @@ function SettingsPage() {
             </button>
           </div>
           <p className="help-text">
-            Get your API key from:{' '}
-            <a href="https://vercel.com/docs/ai/ai-gateway" target="_blank" rel="noopener noreferrer">
-              Vercel AI Gateway
-            </a>{' '}
-            (provides access to all Google Gemini models)
+            {getApiKeyHelpText(settings.provider)}
           </p>
         </div>
 

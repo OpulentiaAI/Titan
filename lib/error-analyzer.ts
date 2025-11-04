@@ -2,6 +2,7 @@
 // Analyzes workflow execution failures to identify root causes and improvements
 
 import { z } from 'zod';
+import { renderAddendum } from './system-addendum';
 
 export interface ErrorAnalysisResponse {
   recap: string; // Summarize key actions chronologically, highlight patterns
@@ -25,7 +26,7 @@ export async function analyzeExecutionFailure(
   finalAnswer: string,
   evaluatorFeedback?: string,
   opts: {
-    provider: 'google' | 'gateway';
+    provider: 'google' | 'gateway' | 'nim' | 'openrouter';
     apiKey: string;
     model?: string;
     braintrustApiKey?: string;
@@ -41,27 +42,42 @@ export async function analyzeExecutionFailure(
     const { createGateway } = await import('@ai-sdk/gateway');
     const client = createGateway({ apiKey: opts.apiKey });
     model = client(opts.model || 'google:gemini-2.5-flash');
+  } else if (opts.provider === 'nim') {
+    const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+    const client = createOpenAICompatible({
+      name: 'nim',
+      baseURL: 'https://integrate.api.nvidia.com/v1',
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+    });
+    model = client.chatModel(opts.model || 'deepseek-ai/deepseek-r1');
+  } else if (opts.provider === 'openrouter') {
+    const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+    const client = createOpenRouter({ apiKey: opts.apiKey });
+    model = client(opts.model || 'minimax/minimax-m2');
   } else {
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
     const client = createGoogleGenerativeAI({ apiKey: opts.apiKey });
     model = client(opts.model || 'gemini-2.5-flash');
   }
 
-  const systemPrompt = `You are an expert at analyzing browser automation and reasoning processes. Your task is to analyze the given sequence of steps and identify what went wrong in the execution process.
+  const baseSystemPrompt = `ROLE
+You are a failure analysis expert for browser automation. Diagnose what went wrong and how to fix it, succinctly.
 
-<rules>
-1. The sequence of actions taken
-2. The effectiveness of each step
-3. The logic between consecutive steps
-4. Alternative approaches that could have been taken
-5. Signs of getting stuck in repetitive patterns
-6. Whether the final answer matches the accumulated information
+SCOPE
+1) Sequence: what was done and when
+2) Effectiveness: whether each step advanced the goal
+3) Causality: logic between steps and missed preconditions
+4) Recovery: concrete alternatives and fallbacks that should have been tried
+5) Anti-Looping: detect repetition without adaptation
+6) Answer Quality: whether the final answer matched verified evidence
 
-Analyze the steps and provide detailed feedback following these guidelines:
-- In the recap: Summarize key actions chronologically, highlight patterns, and identify where the process started to go wrong
-- In the blame: Point to specific steps or patterns that led to the inadequate answer
-- In the improvement: Provide actionable suggestions that could have led to a better outcome
-</rules>
+GUIDELINES
+- Recap: Chronological summary that pinpoints divergence from the critical path
+- Blame: Specific steps/patterns that caused failure (planning, parameters, selector, navigation, timing, state, permissions)
+- Improvement: Actionable fixes (parameter clarifications, selector strategy, verification gates, wait/scroll, alternate flows)
+- Be direct and evidence-based. Omit chain-of-thought.
 
 <example>
 <input>
@@ -105,6 +121,7 @@ The answer is not definitive and fails to complete the requested action. More ex
 }
 </output>
 </example>`;
+  const systemPrompt = [baseSystemPrompt, renderAddendum('ADDENDUM')].join('\n\n');
 
   const userPrompt = [
     '<steps>',
@@ -142,4 +159,3 @@ The answer is not definitive and fails to complete the requested action. More ex
     };
   }
 }
-

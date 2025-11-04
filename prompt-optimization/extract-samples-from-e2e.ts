@@ -12,6 +12,54 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/**
+ * Dynamic complexity calculation for E2E samples
+ */
+function calculateDynamicComplexity(query: string, expectedSteps: number): number {
+  const q = query.toLowerCase();
+  let complexity = 0.2;
+  
+  // Base on expected steps
+  complexity += Math.min(expectedSteps * 0.1, 0.4);
+  
+  // Form interaction
+  if (q.includes('form') || q.includes('fill') || q.includes('input')) complexity += 0.3;
+  
+  // Search and navigation
+  if (q.includes('search') || q.includes('navigate') || q.includes('browse')) complexity += 0.2;
+  
+  // Multi-step workflows
+  if (q.includes('then') || q.includes('and') || q.includes('after')) complexity += 0.25;
+  
+  // Complex URLs or multiple destinations
+  const urls = query.match(/https?:\/\/[^\s]+/g);
+  if (urls && urls.length > 1) complexity += 0.15;
+  
+  return Math.min(complexity, 1.0);
+}
+
+/**
+ * Dynamic confidence calculation for E2E samples  
+ */
+function calculateDynamicConfidence(query: string, expectedSteps: number): number {
+  let confidence = 0.9;
+  
+  // Reduce confidence for complex tasks
+  confidence -= Math.min(expectedSteps * 0.05, 0.2);
+  
+  // Increase for clear, direct queries
+  if (query.toLowerCase().includes('navigate to') || query.toLowerCase().includes('go to')) {
+    confidence += 0.05;
+  }
+  
+  // Decrease for ambiguous queries
+  if (query.includes('?') || query.toLowerCase().includes('maybe')) {
+    confidence -= 0.1;
+  }
+  
+  return Math.max(Math.min(confidence, 1.0), 0.7); // E2E samples should have high confidence
+}
+
 interface E2ETestScenario {
   name: string;
   query: string;
@@ -103,10 +151,10 @@ function createPlannerSamples(): DSPygroundSample[] {
             })),
             criticalPaths: [1],
             estimatedSteps: scenario.expectedSteps,
-            complexityScore: scenario.expectedSteps > 3 ? 0.7 : 0.3,
+            complexityScore: calculateDynamicComplexity(scenario.query, scenario.expectedSteps),
             potentialIssues: [],
             optimizations: ['Use CSS selectors for reliability'],
-            confidence: 0.95,
+            confidence: calculateDynamicConfidence(scenario.query, scenario.expectedSteps),
           }, null, 2),
         },
       ],

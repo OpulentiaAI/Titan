@@ -149,7 +149,7 @@ const ToolComponent = ({ toolPart, defaultOpen = false, className }: ToolProps) 
     <MinorErrorBoundary componentName="Tool">
       <div
         className={cn(
-          "border-gray-200 dark:border-gray-700 mt-3 overflow-hidden rounded-lg border",
+          "border-border/40 bg-accent/5 mt-3 overflow-hidden rounded-lg border backdrop-blur-sm",
           className
         )}
         role="article"
@@ -159,14 +159,14 @@ const ToolComponent = ({ toolPart, defaultOpen = false, className }: ToolProps) 
           <CollapsibleTrigger asChild>
             <Button
               variant="ghost"
-              className="bg-background h-auto w-full justify-between rounded-b-none px-3 py-2 font-normal hover:bg-muted/50"
+              className="bg-transparent h-auto w-full justify-between rounded-b-none px-3 py-2 font-normal hover:bg-muted/30"
               aria-expanded={isOpen}
               aria-controls={`tool-content-${toolCallId}`}
             >
               <div className="flex items-center gap-2">
                 {StateIcon}
-                <TextShimmer 
-                  duration={state === "input-streaming" ? 1.5 : 2} 
+                <TextShimmer
+                  duration={state === "input-streaming" ? 1.5 : 2}
                   spread={2}
                   className="font-mono text-sm font-medium"
                 >
@@ -174,8 +174,8 @@ const ToolComponent = ({ toolPart, defaultOpen = false, className }: ToolProps) 
                 </TextShimmer>
                 {StateBadge}
               </div>
-              <ChevronDown 
-                className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} 
+              <ChevronDown
+                className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")}
                 aria-hidden="true"
               />
             </Button>
@@ -183,17 +183,17 @@ const ToolComponent = ({ toolPart, defaultOpen = false, className }: ToolProps) 
           <CollapsibleContent
             id={`tool-content-${toolCallId}`}
             className={cn(
-              "border-gray-200 dark:border-gray-700 border-t",
+              "border-border/30 border-t",
               "data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down overflow-hidden"
             )}
           >
-            <div className="bg-background space-y-3 p-3">
+            <div className="bg-transparent space-y-3 p-3">
               {input && Object.keys(input).length > 0 && (
                 <div>
                   <h4 className="text-muted-foreground mb-2 text-sm font-medium">
                     <TextShimmer duration={2} spread={2}>Input</TextShimmer>
                   </h4>
-                  <div className="bg-muted rounded border p-2 font-mono text-sm">
+                  <div className="bg-muted/50 rounded border-border/30 border p-2 font-mono text-sm">
                     {Object.entries(input).map(([key, value]) => (
                       <div key={key} className="mb-1 wrap-break-word">
                         <span className="text-muted-foreground">{key}:</span>{" "}
@@ -209,7 +209,7 @@ const ToolComponent = ({ toolPart, defaultOpen = false, className }: ToolProps) 
                   <h4 className="text-muted-foreground mb-2 text-sm font-medium">
                     <TextShimmer duration={2} spread={2}>Output</TextShimmer>
                   </h4>
-                  <div className="bg-muted max-h-60 overflow-auto rounded border p-2 font-mono text-sm">
+                  <div className="bg-muted/50 max-h-60 overflow-auto rounded border-border/30 border p-2 font-mono text-sm">
                     <pre className="whitespace-pre-wrap wrap-break-word">
                       {formatValue(output)}
                     </pre>
@@ -222,7 +222,7 @@ const ToolComponent = ({ toolPart, defaultOpen = false, className }: ToolProps) 
                   <h4 className="mb-2 text-sm font-medium text-red-600 dark:text-red-400" role="alert">
                     <TextShimmer duration={1.5} spread={2}>Error</TextShimmer>
                   </h4>
-                  <div className="bg-background rounded border border-red-200 p-2 text-sm dark:border-red-800 dark:bg-red-900/20 wrap-break-word">
+                  <div className="bg-red-50/50 dark:bg-red-950/20 rounded border border-red-200/50 dark:border-red-800/30 p-2 text-sm wrap-break-word">
                     {toolPart.errorText}
                   </div>
                 </div>
@@ -236,7 +236,7 @@ const ToolComponent = ({ toolPart, defaultOpen = false, className }: ToolProps) 
               )}
 
               {toolCallId && (
-                <div className="text-muted-foreground border-t border-gray-200 dark:border-gray-700 pt-2 text-xs">
+                <div className="text-muted-foreground border-t border-border/20 pt-2 text-xs">
                   <span className="font-mono break-all">Call ID: {toolCallId}</span>
                 </div>
               )}

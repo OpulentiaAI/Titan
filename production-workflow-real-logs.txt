@@ -1,0 +1,442 @@
+🚀 Starting Production Browser Automation Workflow Test with Telemetry...
+
+📊 Test ID: telemetry-test-1762216441198
+🎯 Starting workflow execution...
+📋 Query: go to espn and summarize latest news - 1762216441198
+🔑 You.com API key present: false
+🤖 Model: openai/gpt-4o-mini
+
+🚀 [WORKFLOW] Function called with input: {
+  userQuery: 'go to espn and summarize latest news - 1762216441198',
+  hasInitialContext: true,
+  provider: 'openrouter',
+  model: 'openai/gpt-4o-mini'
+}
+
+================================================================================
+🔍 PREFLIGHT VALIDATION
+================================================================================
+
+🔍 [PREFLIGHT] ❌ Preflight check failed - Missing 1 critical variable(s)
+
+🔍 [PREFLIGHT] Warnings:
+🔍 [PREFLIGHT]   ⚠️  ANTHROPIC_API_KEY not set (optional)
+🔍 [PREFLIGHT]   ⚠️  BRAINTRUST_API_KEY not set (optional)
+
+🔍 [PREFLIGHT] ❌ Missing Critical Variables:
+🔍 [PREFLIGHT]   - YOU_API_KEY
+
+================================================================================
+
+⚠️ 🔄 [WORKFLOW] Preflight validation failed - workflow may fail
+   Data: {
+  missingCritical: [ 'YOU_API_KEY' ],
+  warnings: [
+    'ANTHROPIC_API_KEY not set (optional)',
+    'BRAINTRUST_API_KEY not set (optional)'
+  ]
+}
+🔍 🔄 [WORKFLOW] ⏱️ Starting: Workflow Execution
+📋 🔄 [WORKFLOW] Starting browser automation workflow
+   Data: {
+  workflowId: 'wf_1762216441200_spivet3m4',
+  query: 'go to espn and summarize latest news - 1762216441198',
+  queryLength: 52,
+  provider: 'openrouter',
+  model: 'openai/gpt-4o-mini',
+  hasYouApiKey: false,
+  hasInitialContext: true,
+  preflightPassed: false
+}
+💬 [UI] New message: 🧠 **Planning Phase**
+
+Analyzing task and generating execution plan...
+
+**Query:** go to espn and su...
+📝 [UI] Updating last message
+🔍 [ENHANCED-PLANNING] Starting enhanced planning step
+🔍 [ENHANCED-PLANNING] Expanding query...
+🔍 🎯 [ORCHESTRATION] ⏱️ Starting: Query Expansion
+📋 🎯 [ORCHESTRATION] Starting query expansion
+   Data: {
+  query: 'go to espn and summarize latest news - 1762216441198',
+  queryLength: 52,
+  hasContext: false,
+  useSubmodular: true
+}
+🔍 🎯 [ORCHESTRATION] Using submodular optimization
+   Data: { adaptiveK: true }
+⚠️ 🔄 [WORKFLOW] ⚠️  Web search disabled - no You.com API key provided
+   Data: {
+  recommendation: 'Add You.com API key to settings for enhanced web search capabilities'
+}
+⚠️  [WORKFLOW] Web search disabled - no You.com API key (execution will continue without search enhancement)
+🔍 🎯 [ORCHESTRATION] ⏱️ Completed: Query Expansion (25ms)
+📋 🎯 [ORCHESTRATION] Query expansion completed with submodular optimization
+   Data: {
+  duration: 25,
+  variationsGenerated: 7,
+  variationsSelected: 0,
+  diversityScore: 0,
+  personas: [
+    'direct_action',
+    'exploratory_navigation',
+    'data_extraction',
+    'multi_step_workflow',
+    'error_recovery',
+    'validation_focused',
+    'performance_optimized'
+  ]
+}
+🔍 [ENHANCED-PLANNING] Query expanded { variations: 0 }
+🔍 [ENHANCED-PLANNING] Best query selected: go to espn and summarize latest news - 1762216441198...
+🔍 [ENHANCED-PLANNING] Calling planning function...
+🔍 🧠 [PLANNING] ⏱️ Starting: Planning Step
+📋 🧠 [PLANNING] Starting planning step
+   Data: {
+  query: 'go to espn and summarize latest news - 1762216441198',
+  queryLength: 52,
+  provider: 'openrouter',
+  model: 'openai/gpt-4o-mini',
+  hasInitialContext: true
+}
+🔍 🧠 [PLANNING] Loading planning utilities
+   Data: {
+  cacheUtils: 'generateExecutionPlanWithTelemetryCached',
+  planner: 'formatPlanAsInstructions'
+}
+🔍 🧠 [PLANNING] Calling planning function
+   Data: { hasCacheUtils: true, hasFormatter: true }
+🔍 🧠 [PLANNING] Calling generateExecutionPlanWithTelemetryCached
+   Data: {
+  hasApiKey: true,
+  apiKeyLength: 73,
+  model: 'openai/gpt-4o-mini',
+  provider: 'openrouter'
+}
+🔍 [ENHANCED-PLANNING] Planning function completed { duration: 10 }
+🔍 [ENHANCED-PLANNING] Enhancing plan with orthogonality check...
+🔍 [ENHANCED-PLANNING] Orthogonality check complete { overlap: 0, coverage: 0 }
+🔍 [ENHANCED-PLANNING] Enhanced planning complete { totalDuration: 36 }
+🔍 🔄 [WORKFLOW] Enhanced planning produced steps
+   Data: { stepCount: 1 }
+🔧 [WORKFLOW] About to normalize plan steps
+🔧 [WORKFLOW] Original planning structure: {
+  hasPlan: true,
+  hasSteps: true,
+  stepsType: 'object',
+  stepsIsArray: true,
+  stepsLength: 1,
+  firstStep: { action: 'getPageContext', target: 'current_page' }
+}
+🔧 [WORKFLOW] Plan steps normalized successfully { originalSteps: 1, normalizedSteps: 2 }
+🧠 [WORKFLOW] Normalized plan steps { stepCount: 2, actions: [ 'navigate', 'getPageContext' ] }
+📋 🔄 [WORKFLOW] Planning step completed successfully
+   Data: { stepsCount: 2, confidence: 0.7000000000000001, complexityScore: 0.5 }
+📝 [WORKFLOW] About to update last message with planning results
+📝 [UI] Updating last message
+📝 [WORKFLOW] Last message updated successfully
+📋 [WORKFLOW] About to populate execSteps from planning output
+📋 [WORKFLOW] Planning result structure: {
+  hasPlan: true,
+  hasSteps: true,
+  stepsType: 'object',
+  stepsIsArray: true,
+  stepsLength: 2
+}
+📋 [WORKFLOW] Processing step 1: {
+  action: 'navigate',
+  target: 'https://www.espn.com',
+  hasAction: true,
+  hasTarget: true
+}
+📋 [WORKFLOW] Processing step 2: {
+  action: 'getPageContext',
+  target: 'current_page',
+  hasAction: true,
+  hasTarget: true
+}
+📋 🔄 [WORKFLOW] ExecSteps populated from planning
+   Data: { execStepsCount: 2, actions: [ 'navigate', 'getPageContext' ] }
+🔄 [WORKFLOW] After execSteps population, proceeding to agent messages setup
+🔧 [WORKFLOW] Execution instruction appended { planSteps: 2, instructionLength: 698 }
+📄 [WORKFLOW] Agent messages prepared, proceeding to page context step
+🏠 [WORKFLOW] Starting PHASE 2: Page Context Step
+📄 [WORKFLOW] Using provided initial page context
+🎯 [WORKFLOW] Entering PHASE 5: Streaming Step
+🤖 [WORKFLOW] Using AI SDK 6 Agent for agentic execution with tool calls
+🤖 [WORKFLOW] Agent features: dynamic model selection, smart stop conditions, performance monitoring
+✅ [WORKFLOW] Messages validated - 1 message(s), ready for AI agent execution
+📝 [UI] Updating last message
+🚀 [WORKFLOW] About to call streaming step {
+  execStepsCount: 2,
+  execSteps: [
+    { step: 1, action: 'navigate', url: 'https://www.espn.com' },
+    { step: 2, action: 'getPageContext', url: 'current_page' }
+  ],
+  agentMessagesCount: 2
+}
+🔍 [WORKFLOW] Pre-streaming validation checks:
+  - execSteps populated: true
+  - agentMessages exist: true
+  - agentMessages length: 2
+  - model exists: true
+  - system exists: true
+  - tools exist: true
+  - updateLastMessage exists: function
+  - pushMessage exists: function
+  - abortSignal exists: false
+🎯 [WORKFLOW] REACHED STREAMING STEP CALL - EXECUTING NOW
+🚀 [WORKFLOW] About to call streamingStep with parameters: {
+  hasModel: true,
+  hasSystem: true,
+  hasTools: true,
+  hasAgentMessages: true,
+  agentMessagesLength: 2,
+  hasExecSteps: true,
+  execStepsLength: 2,
+  hasUpdateLastMessage: true,
+  hasPushMessage: true,
+  hasAbortSignal: false
+}
+🔍 📡 [STREAMING] ⏱️ Starting: Streaming Step
+📋 📡 [STREAMING] Starting AI SDK streaming step
+   Data: {
+  messageCount: 2,
+  providedToolCount: 8,
+  hasAbortSignal: false,
+  modelType: 'object'
+}
+💬 [UI] New message: ...
+APICallError [AI_APICallError]: Provider returned error
+    at <anonymous> (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/@openrouter/ai-sdk-provider/node_modules/.pnpm/@ai-sdk+provider-utils@3.0.1_zod@3.25.76/node_modules/@ai-sdk/provider-utils/src/response-handler.ts:56:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async postToApi (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/@openrouter/ai-sdk-provider/node_modules/.pnpm/@ai-sdk+provider-utils@3.0.1_zod@3.25.76/node_modules/@ai-sdk/provider-utils/src/post-to-api.ts:112:28)
+    at async Proxy.doStream (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/@openrouter/ai-sdk-provider/src/chat/index.ts:413:50)
+    at async fn (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/ai/src/generate-text/stream-text.ts:1263:25)
+    at async <anonymous> (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/ai/src/telemetry/record-span.ts:21:24)
+    at async _retryWithExponentialBackoff (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/ai/src/util/retry-with-exponential-backoff.ts:96:12)
+    at async streamStep (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/ai/src/generate-text/stream-text.ts:1215:15)
+    at async fn (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/ai/src/generate-text/stream-text.ts:1638:9)
+    at async <anonymous> (/Users/jeremyalston/Downloads/Component paradise/open-chatgpt-atlas-master/node_modules/ai/src/telemetry/record-span.ts:21:24) {
+  cause: undefined,
+  url: 'https://openrouter.ai/api/v1/chat/completions',
+  requestBodyValues: {
+    model: 'openai/gpt-4o-mini',
+    models: undefined,
+    logit_bias: undefined,
+    logprobs: undefined,
+    top_logprobs: undefined,
+    user: undefined,
+    parallel_tool_calls: undefined,
+    max_tokens: undefined,
+    temperature: undefined,
+    top_p: undefined,
+    frequency_penalty: undefined,
+    presence_penalty: undefined,
+    seed: undefined,
+    stop: undefined,
+    response_format: undefined,
+    top_k: undefined,
+    messages: [ [Object], [Object], [Object] ],
+    include_reasoning: undefined,
+    reasoning: undefined,
+    usage: undefined,
+    plugins: undefined,
+    web_search_options: undefined,
+    provider: undefined,
+    tools: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object]
+    ],
+    tool_choice: 'auto',
+    stream: true,
+    stream_options: undefined
+  },
+  statusCode: 400,
+  responseHeaders: {
+    'access-control-allow-origin': '*',
+    'cf-ray': '999005f6aa378b98-ORD',
+    connection: 'keep-alive',
+    'content-type': 'application/json',
+    date: 'Tue, 04 Nov 2025 00:34:02 GMT',
+    'permissions-policy': 'payment=(self "https://checkout.stripe.com" "https://connect-js.stripe.com" "https://js.stripe.com" "https://*.js.stripe.com" "https://hooks.stripe.com")',
+    'referrer-policy': 'no-referrer, strict-origin-when-cross-origin',
+    server: 'cloudflare',
+    'transfer-encoding': 'chunked',
+    vary: 'Accept-Encoding',
+    'x-content-type-options': 'nosniff'
+  },
+  responseBody: `{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"{\\n  \\"error\\": {\\n    \\"message\\": \\"Invalid schema for function 'navigate': schema must be a JSON Schema of 'type: \\\\\\"object\\\\\\"', got 'type: \\\\\\"None\\\\\\"'.\\",\\n    \\"type\\": \\"invalid_request_error\\",\\n    \\"param\\": \\"tools[0].function.parameters\\",\\n    \\"code\\": \\"invalid_function_parameters\\"\\n  }\\n}","provider_name":"OpenAI"}},"user_id":"user_2rpDUegtae70YTCxjF8CpG7Zomy"}`,
+  isRetryable: false,
+  data: {
+    error: {
+      code: 400,
+      message: 'Provider returned error',
+      type: null,
+      param: null
+    }
+  },
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_APICallError): true
+}
+📝 [UI] Updating last message
+📋 📡 [STREAMING] streamText execution completed
+   Data: {
+  fullTextLength: 0,
+  toolCallCount: 0,
+  chunkCount: 0,
+  finishReason: 'stop'
+}
+🔍 📡 [STREAMING] ⏱️ Completed: Streaming Step (1422ms)
+🎯 [WORKFLOW] STREAMING STEP COMPLETED
+✅ [WORKFLOW] Streaming step returned: {
+  hasStreamingResult: true,
+  streamingType: 'object',
+  hasFullText: true,
+  fullTextLength: 35,
+  toolCallCount: 0,
+  finishReason: 'stop',
+  executionStepsCount: 2
+}
+📋 [WORKFLOW] Updating execSteps with streaming results
+📋 [WORKFLOW] execSteps updated: [
+  { step: 1, action: 'navigate', success: false },
+  { step: 2, action: 'getPageContext', success: false }
+]
+📝 [UI] Updating last message
+📝 [UI] Updating last message
+💬 [UI] New message: ---
+## Workflow Diagnostics
+
+**Status:** Recovery cycle triggered — agent preparing adjustments
+
+###...
+📊 [SUMMARIZATION] Using AI SDK 6 with agentic reasoning for result analysis
+💡 [SUMMARIZATION] Running without web search (add You.com API key for enhanced analysis)
+📋 🔄 [WORKFLOW] Starting summarization phase
+   Data: {
+  hasYouApiKey: false,
+  stepCount: 2,
+  useAiSdk: true,
+  useWebSearch: false
+}
+🔍 🔄 [WORKFLOW] Summarization inputs prepared
+   Data: {
+  objectiveLength: 52,
+  trajectoryLength: 99,
+  outcomeLength: 95,
+  stepCount: 2
+}
+🔍 🔄 [WORKFLOW] Loading cached summarization function
+🔍 🔄 [WORKFLOW] Calling cached summarization
+   Data: {
+  hasCachedFunction: true,
+  hasExecutableFunction: true,
+  shouldStream: false,
+  rawType: 'object'
+}
+📝 [UI] Updating last message
+🔍 🔄 [WORKFLOW] Executing cached summarization function
+🤖 [SUMMARIZATION] Using AI SDK 6 with tool calls (feature flag enabled)
+🤖 [AI-SDK-SUMMARIZER] Starting AI SDK summarization...
+🤖 [AI-SDK-SUMMARIZER] Has You.com API: false
+🤖 [AI-SDK-SUMMARIZER] Calling generateText with 0 tools...
+🤖 [AI-SDK-SUMMARIZER] ✅ Generation complete in 5205ms
+🤖 [AI-SDK-SUMMARIZER] Text length: 1100 chars
+🤖 [AI-SDK-SUMMARIZER] Tool calls: 1
+✅ [SUMMARIZATION] AI SDK summarization successful { duration: 5205, summaryLength: 1100, searchResultsUsed: 0 }
+📋 🔄 [WORKFLOW] Summarization completed
+   Data: {
+  success: true,
+  hasSummary: true,
+  summaryLength: 3021,
+  duration: 5205,
+  hasError: false
+}
+📝 [UI] Updating last message
+📝 [UI] Updating last message
+🔍 🔄 [WORKFLOW] Displaying summarization results
+   Data: { shouldStream: false, summaryLength: 3021 }
+💬 [UI] New message: ---
+## Summary & Next Steps
+
+## Summary
+The browser automation execution aimed to access ESPN's webs...
+🔍 🔄 [WORKFLOW] ⏱️ Completed: Workflow Execution (15047ms)
+📋 🔄 [WORKFLOW] Workflow completed successfully
+   Data: {
+  workflowId: 'wf_1762216441200_spivet3m4',
+  totalDuration: 1472,
+  phaseDurations: {
+    planning: 10,
+    pageContext: 0,
+    streaming: 1421,
+    summarization: 5205
+  },
+  executionSummary: {
+    totalSteps: 2,
+    successfulSteps: 0,
+    finalUrl: 'current_page',
+    toolCalls: 0,
+    textChunks: 0
+  },
+  optionalFeatures: { preSearchUsed: false, summarizationSuccessful: true }
+}
+
+✅ Workflow completed in 15055ms
+📊 Results:
+✅ Summarization: SUCCESS
+📝 Summary length: 3021 chars
+⏱️  Duration: 5205 ms
+📊 Telemetry - Summary Quality Analysis:
+   - Contains "Lakers": NO ❌
+   - Contains "NBA": NO ❌
+   - Contains "ESPN": YES ✅
+   - Fallback used: NO ✅
+🎯 Execution trajectory: 1 steps
+🧠 Planning duration: 10 ms
+🏁 Final URL: current_page
+⏱️  Total duration: 1472 ms
+
+🎉 Completion message would be shown: YES ✅
+📋 Full Summary Content:
+================================================================================
+## Summary
+The browser automation execution aimed to access ESPN's website and summarize the latest news but failed at both steps of the process. This indicates a breakdown in the automation sequence, preventing any data retrieval.
+
+## Goal Assessment
+Not achieved. The automation failed to navigate to the ESPN website, resulting in no opportunity to summarize the latest news.
+
+## Key Findings
+- The navigation to the ESPN website was unsuccessful, likely due to connectivity issues, website changes, or incorrect URL.
+- The failure to load the page prevented any further actions, including getting the page context for news summarization.
+
+## Recommended Next Steps
+1. **Check URL Validity:** Verify that the URL `https://www.espn.com` is correct and accessible from the automation environment.
+2. **Implement Error Handling:** Introduce error handling mechanisms to manage navigation failures, allowing the automation to retry or log the issue.
+3. **Test Connectivity:** Ensure that the automation environment has internet access and can reach external websites without restrictions or firewalls.
+
+---
+## Self-Recovery Plan
+
+**Diagnosed Issue:** The main issues arose from the failure to navigate to the website initially (step 1) and the subsequent failure in fetching the page context (step 2). Both failures indicate a lack of connectivity or accessibility to the desired URL, which prevented any further actions from occurring. The inability to complete those foundational actions hindered any potential summarization of news articles, leading to a vague response that failed to address the original query.
+
+**Recap:**
+The execution process involved two steps: First, an attempt to navigate to the ESPN website (step 1), which failed. Consequently, step 2 involved trying to get the page context, but this also failed. As a result, no meaningful context was retrieved from the page, and the overall attempt to summarize the latest news could not proceed. The process was significantly hampered by the failures at both navigation and context retrieval, leaving the task incomplete and the expected output unattainable.
+
+**Recommended Actions:**
+1. Ensure a stable internet connection before attempting a navigation action. Implement error handling to catch issues when navigating (e.g., retry or alternative URLs). 2. If navigation fails, log the error for future analysis and provide feedback on potential issues (e.g., network problems, incorrect URL). 3. Consider adding retry logic for critical actions like navigating to a key page or getting context, to improve robustness against transient failures. 4. After logical failure paths are triggered, include a clear summary of what was attempted and what the next steps are to guide the user effectively.
+
+**Evaluator Suggestions:**
+1. Increase completeness (current: 0%)
+2. Ensure all requested aspects are addressed
+3. Provide clearer next steps or completion status
+
+✅ The agent will iterate automatically using these adjustments in the next execution cycle.
+================================================================================
+
+💾 Telemetry saved to: ./tmp/telemetry-telemetry-test-1762216441198.json
+📊 Latest telemetry updated: ./tmp/latest-telemetry.json

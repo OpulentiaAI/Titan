@@ -13,6 +13,7 @@ interface AgentComposerIntegrationProps {
   disabled?: boolean;
   showSettings?: boolean;
   onSettingsClick?: () => void;
+  modelSelector?: React.ReactNode;
 }
 
 export function AgentComposerIntegration({
@@ -21,6 +22,7 @@ export function AgentComposerIntegration({
   disabled = false,
   showSettings = true,
   onSettingsClick,
+  modelSelector,
 }: AgentComposerIntegrationProps) {
   const [promptValue, setPromptValue] = useState("");
 

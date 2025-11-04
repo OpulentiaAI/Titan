@@ -1,7 +1,7 @@
 {
   "name": "atlas-test-kitchen",
   "version": "1.0.0",
-  "description": "End-to-end test suite for Atlas browser extension with Braintrust observability",
+  "description": "End-to-end test suite for Atlas browser extension with observability",
   "type": "module",
   "scripts": {
     "test": "tsx --require ./setup.ts main.ts",

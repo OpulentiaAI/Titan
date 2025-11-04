@@ -1,51 +1,40 @@
-import { LanguageModelUsage } from 'ai';
-
-export type AtlasProvider = 'google' | 'gateway';
-
-export type ComputerUseEngine = 'google' | 'gateway-flash-lite';
-
+// Test types for Atlas
 export interface AtlasModel {
   name: string;
   model_slug: string;
-  provider: AtlasProvider;
-  computerUseEngine: ComputerUseEngine;
+  provider: string;
+  computerUseEngine: string;
   maxTokens: number;
 }
 
 export interface AtlasSettings {
-  provider: AtlasProvider;
+  provider: 'google' | 'gateway';
   apiKey: string;
   model: string;
-  computerUseEngine: ComputerUseEngine;
-  youApiKey?: string;
-  braintrustApiKey?: string;
-  braintrustProjectName?: string;
-}
-
-export interface AtlasResult {
-  success: boolean;
-  steps: number;
-  usage: LanguageModelUsage;
-  executionTime: number;
-  error?: string;
-  finalUrl?: string;
-  screenshot?: string;
-  messages: AtlasMessage[];
-}
-
-export interface AtlasMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
+  computerUseEngine: string;
 }
 
 export interface TestCase {
+  description: string;
+  category: string;
   input: string;
   expectedUrl?: string;
   expectedContent?: string;
   expectedActions?: string[];
-  description: string;
-  category: 'navigation' | 'search' | 'form' | 'interaction' | 'complex';
 }
 
+export interface AtlasTaskResult {
+  success: boolean;
+  steps: number;
+  finalUrl?: string;
+  error?: string;
+  messages: Array<{
+    role: string;
+    content: string;
+  }>;
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+}

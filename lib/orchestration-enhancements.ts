@@ -2,9 +2,9 @@
 // Logical and efficiency improvements for answer quality and latency reduction
 // Fully compatible with existing architecture
 
-import { logEvent } from './braintrust';
-import { expandQueryWithSubmodularOptimization } from './submodular-query-optimization';
-import { orchestrationDebug } from './debug-logger';
+import { logEvent } from './braintrust.ts';
+import { expandQueryWithSubmodularOptimization } from './submodular-query-optimization.ts';
+import { orchestrationDebug } from './debug-logger.ts';
 
 /**
  * Query Expansion & Optimization
@@ -595,4 +595,3 @@ export class LatencyOptimizer {
 
 // Global latency optimizer instance
 export const latencyOptimizer = new LatencyOptimizer();
-

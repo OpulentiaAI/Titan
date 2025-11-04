@@ -25,8 +25,21 @@ export const PromptInput = ({ className, ...props }: PromptInputProps) => (
   <form
     className={cn(
       "w-full overflow-hidden rounded-xl border bg-muted shadow-xs",
+      "divide-y-0",
       className
     )}
+    {...props}
+  />
+);
+
+export type PromptInputFooterProps = HTMLAttributes<HTMLDivElement>;
+
+export const PromptInputFooter = ({
+  className,
+  ...props
+}: PromptInputFooterProps) => (
+  <div
+    className={cn("flex items-center justify-between p-2.5", className)}
     {...props}
   />
 );
@@ -70,6 +83,7 @@ export const PromptInputTextarea = ({
       className={cn(
         "w-full resize-none rounded-none border-none p-3 shadow-none outline-hidden ring-0",
         "field-sizing-content max-h-[6lh] bg-transparent dark:bg-transparent",
+        "px-5 md:text-base",
         "focus-visible:ring-0",
         className
       )}
@@ -241,4 +255,3 @@ export const PromptInputModelSelectValue = ({
 }: PromptInputModelSelectValueProps) => (
   <SelectValue className={cn(className)} {...props} />
 );
-

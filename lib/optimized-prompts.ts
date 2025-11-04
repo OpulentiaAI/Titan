@@ -1,11 +1,11 @@
 // Optimized Prompts & Tool Definitions
-// Enhanced with Anthropic computer use best practices, Morph patterns, and Vercel AI SDK guidance
+// Enhanced with industry computer use best practices and AI SDK guidance
 // Production-validated through comprehensive E2E testing
 
 /**
  * Enhanced Browser Automation System Prompt
  * Incorporates:
- * - Anthropic's step validation pattern
+ * - Strict step validation pattern
  * - Keyboard shortcut guidance for tricky UI
  * - Explicit verification after each action
  * - Example tool calls for common patterns
@@ -273,7 +273,7 @@ Generate plans that agents can execute with high reliability by following this v
 
 /**
  * Enhanced Tool Definitions with Examples
- * Following Anthropic's pattern of showing successful tool calls
+ * Following a pattern of showing successful tool calls
  */
 export const ENHANCED_TOOL_DEFINITIONS = {
   navigate: tool({
@@ -542,7 +542,7 @@ After key combination, verify effect with getPageContext():
 };
 
 /**
- * Credential Handling Pattern (from Anthropic docs)
+ * Credential Handling Pattern (adopted from reference docs)
  */
 export const CREDENTIAL_HANDLING_TEMPLATE = `
 <ROBOT_CREDENTIALS>
@@ -564,7 +564,7 @@ Usage in prompt:
 `;
 
 /**
- * Task Wrapper Template (from Anthropic/Vercel patterns)
+ * Task Wrapper Template (from reference patterns)
  */
 export function wrapTaskInXML(task: string, context?: string): string {
   return `<TASK>
@@ -604,4 +604,3 @@ export default {
   VALIDATION_CYCLE_TEMPLATE,
   wrapTaskInXML,
 };
-

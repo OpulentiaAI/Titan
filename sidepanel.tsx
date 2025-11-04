@@ -1,29 +1,64 @@
 import { useState, useEffect, useRef } from 'react';
+// __name polyfill for AI SDK compatibility in browser environment
+if (typeof globalThis !== 'undefined' && !globalThis.__name) {
+  globalThis.__name = (target: any, name: string) => {
+    Object.defineProperty(target, 'name', { value: name, configurable: true });
+    return target;
+  };
+}
+
 import { createRoot } from 'react-dom/client';
 import { Streamdown } from 'streamdown';
 import './app.css'; // Import GT America fonts and OKLCH theme
-import type { Settings, MCPClient, Message } from './types';
+import type { Settings, MCPClient, Message, PageContext } from './types';
 import { GeminiResponseSchema } from './types';
 import { stepCountIs } from 'ai';
 import { initializeBraintrust } from './lib/braintrust';
 import { AIDevtools } from '@ai-sdk-tools/devtools';
-import { Provider, useChatMessages, useChatActions } from '@ai-sdk-tools/store';
+import { Provider, useChatMessages, useChatActions, useChatStoreApi } from '@ai-sdk-tools/store';
 import { StepDisplay } from './components/StepDisplay';
 import { EnhancedStepDisplay } from './components/EnhancedStepDisplay';
 import { ToolExecutionDisplay } from './components/ToolExecutionDisplay';
 import { PlanningDisplay } from './components/PlanningDisplay';
 import { Tool } from './components/ui/tool';
-import type { ToolPart } from './components/ui/tool';
 import { AgentComposerIntegration } from './components/agents-ui/agent-composer-integration';
+import { ModelMorphDropdown } from './components/ai-elements/model-morph-dropdown';
 import { ReasoningChatForm } from './components/reasoning-chat-form';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from './components/ai-elements/reasoning';
 import { Response } from './components/ai-elements/response';
+import { cn } from './lib/utils';
+// Enhanced chat elements with improved styling
+import { 
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from './components/ai-elements/conversation';
+import { buildFinalSummaryMessage } from './lib/message-utils';
+import { 
+  Message, 
+  MessageContent 
+} from './components/ai-elements/message';
+import {
+  PromptInput,
+  PromptInputTextarea,
+  PromptInputFooter,
+  PromptInputTools,
+  PromptInputButton,
+  PromptInputModelSelect,
+  PromptInputModelSelectContent,
+  PromptInputModelSelectItem,
+  PromptInputModelSelectTrigger,
+  PromptInputModelSelectValue,
+} from './components/ai-elements/prompt-input';
 import { 
   EnhancedPlanDisplay, 
   EnhancedToolCallDisplay, 
   JSONDisplay,
   StructuredOutput 
 } from './components/ui/structured-output';
+import { Button } from './components/ui/button';
+import { Send } from 'lucide-react';
+import { useStickToBottomContext } from 'use-stick-to-bottom';
 import {
   PageContextArtifact,
   SummarizationArtifact,
@@ -35,7 +70,7 @@ import {
 import { WorkflowQueue } from './components/ui/workflow-queue';
 import { WorkflowTaskList } from './components/ui/workflow-task-list';
 import { CodeBlock, CodeBlockCopyButton } from './components/ui/code-block';
-import { cn } from './lib/utils';
+import { PageContext } from './types';
 
 // Custom component to handle link clicks - opens in new tab
 const LinkComponent = ({ href, children }: { href?: string; children?: React.ReactNode }) => {
@@ -72,14 +107,16 @@ function ChatSidebar() {
   
   // Use @ai-sdk-tools/store for high-performance message management
   // Store works with message-like structures - we'll use type assertion for compatibility
-  const messages = useChatMessages<any>() as Message[];
+  const messages = (useChatMessages<any>() as Message[]) || [];
   const actions = useChatActions<any>();
   const { setMessages, pushMessage, replaceMessageById } = actions;
+  const chatStoreApi = useChatStoreApi();
   
   // Helper function to update the last message (common pattern)
   const updateLastMessage = (updater: (msg: Message) => Message) => {
-    if (messages.length === 0) return;
-    const lastMsg = messages[messages.length - 1];
+    const currentMessages = Array.isArray(messages) ? messages : [];
+    if (currentMessages.length === 0) return;
+    const lastMsg = currentMessages[currentMessages.length - 1];
     if (lastMsg) {
       replaceMessageById(lastMsg.id, updater(lastMsg));
     }
@@ -91,10 +128,10 @@ function ChatSidebar() {
   };
   
   const [isLoading, setIsLoading] = useState(false);
-  const [browserToolsEnabled, setBrowserToolsEnabled] = useState(false);
-  const [showBrowserToolsWarning, setShowBrowserToolsWarning] = useState(false);
-  const [isUserScrolled, setIsUserScrolled] = useState(false);
-  const [toolExecutions, setToolExecutions] = useState<ToolPart[]>([]);
+  // Browser tools are always enabled - hardcoded
+  const browserToolsEnabled = true;
+  const [showBrowserToolsWarning, setShowBrowserToolsWarning] = useState(true);
+  // Autoscroll handled via StickToBottom context (see AutoStickWatcher below)
   const abortControllerRef = useRef<AbortController | null>(null);
   const mcpClientRef = useRef<MCPClient | null>(null);
   const mcpToolsRef = useRef<Record<string, unknown> | null>(null);
@@ -102,34 +139,20 @@ function ChatSidebar() {
   const settingsHashRef = useRef('');
   const mcpInitPromiseRef = useRef<Promise<void> | null>(null);
   const composioSessionRef = useRef<{ expiresAt: number } | null>(null);
+  // Track the active browser tab id for metadata/tracking
+  const browserTabIdRef = useRef<number | null>(null);
+  const browserTabUrlRef = useRef<string | null>(null);
 
-  // Helper to add tool execution tracking
-  const trackToolExecution = (toolName: string, params: any, state: ToolPart['state'], output?: any, error?: string) => {
-    const toolPart: ToolPart = {
-      type: toolName,
-      state,
-      input: params,
-      output,
-      errorText: error,
-      toolCallId: `tool-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    };
-    
-    setToolExecutions(prev => {
-      // Update existing tool or add new one
-      const existingIndex = prev.findIndex(t => 
-        t.type === toolName && 
-        JSON.stringify(t.input) === JSON.stringify(params)
-      );
-      
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = toolPart;
-        return updated;
-      }
-      
-      return [...prev, toolPart];
-    });
-  };
+  // Initialize active tab id on mount
+  useEffect(() => {
+    try {
+      chrome.runtime?.sendMessage({ type: 'GET_TAB_INFO' }, (info) => {
+        if (info?.id) browserTabIdRef.current = info.id as number;
+      });
+    } catch (_) {
+      // Ignore if not available
+    }
+  }, []);
 
   const executeTool = async (toolName: string, parameters: any, retryCount = 0): Promise<any> => {
     const MAX_RETRIES = 3;
@@ -137,148 +160,283 @@ function ChatSidebar() {
     
     // Different timeouts for different tool types
     const TOOL_TIMEOUTS: Record<string, number> = {
-      screenshot: 10000,    // Screenshots should be fast
-      type: 15000,         // Typing might need more time if DOM is slow
-      click: 10000,        // Clicks are usually fast
-      navigate: 20000,     // Navigation needs time for page load
-      getPageContext: 10000,
-      scroll: 8000,
-      pressKey: 5000,
-      keyCombo: 5000,
+      screenshot: 10000,
+      navigate: 15000,
+      click: 8000,
+      type: 6000,
+      scroll: 4000,
+      getPageContext: 5000,
+      getBrowserHistory: 8000,
+      wait: 30000,
+      pressKey: 3000,
+      keyCombo: 3000,
+      dragDrop: 10000,
     };
+
+    const TOOL_TIMEOUT = TOOL_TIMEOUTS[toolName] || 8000;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    // Track tool execution start across try/catch
+    const executionStartTime = Date.now();
     
-    const TOOL_TIMEOUT = TOOL_TIMEOUTS[toolName] || 30000; // Default 30s
-    
-    // Track tool execution start
-    trackToolExecution(toolName, parameters, 'input-streaming');
-    
-    return new Promise((resolve, reject) => {
-      let timeoutId: NodeJS.Timeout | null = null;
-      let responded = false;
-      
-      const handleResponse = (response: any) => {
-        // Prevent double-response
-        if (responded) {
-          console.warn(`⚠️ [executeTool] Duplicate response for ${toolName} (ignoring)`);
-          return;
-        }
-        responded = true;
-        
-        // Clear timeout if response received
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-        
-        const errorMsg = response?.error || chrome.runtime.lastError?.message || '';
-        const isConnectionError = errorMsg.includes('Receiving end does not exist') || 
-                                 errorMsg.includes('Could not establish connection');
-        
-        if (isConnectionError && retryCount < MAX_RETRIES) {
-          console.log(`🔄 [executeTool] Connection error on ${toolName}, retrying... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+    try {
+      // Create a promise that rejects on timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT}ms`));
+        }, TOOL_TIMEOUT);
+      });
+
+      // Create a promise that resolves/rejects based on the actual tool execution
+      const toolPromise = new Promise<any>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'EXECUTE_TOOL', toolName, parameters }, (response) => {
+          const errorMsg = response?.error || chrome.runtime.lastError?.message || '';
+          const isConnectionError = errorMsg.includes('Receiving end does not exist') || 
+                                   errorMsg.includes('Could not establish connection');
           
-          setTimeout(async () => {
-            try {
-              const result = await executeTool(toolName, parameters, retryCount + 1);
-              resolve(result);
-            } catch (error) {
-              reject(error);
-            }
-          }, RETRY_DELAY);
-        } else {
-          // Track completion or error
-          if (response?.error || errorMsg) {
-            trackToolExecution(toolName, parameters, 'output-error', response, errorMsg);
+          if (isConnectionError && retryCount < MAX_RETRIES) {
+            console.log(`🔄 [executeTool] Connection error on ${toolName}, retrying... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+            
+            setTimeout(async () => {
+              try {
+                const result = await executeTool(toolName, parameters, retryCount + 1);
+                resolve(result);
+              } catch (error) {
+                reject(error);
+              }
+            }, RETRY_DELAY);
+          } else if (response?.error) {
+            reject(new Error(response.error));
           } else {
-            trackToolExecution(toolName, parameters, 'output-available', response);
+            resolve(response);
           }
-          
-          // Return response as-is (could be success or error)
-          resolve(response);
-        }
-      };
+        });
+      });
+
+      // Race between tool execution and timeout
+      const result = await Promise.race([toolPromise, timeoutPromise]) as any;
       
-      // Set timeout to prevent hanging forever
-      timeoutId = setTimeout(() => {
-        if (!responded) {
-          responded = true;
-          const timeoutError = `Tool ${toolName} timed out after ${TOOL_TIMEOUT}ms - content script may be unresponsive`;
-          console.error(`❌ [executeTool] ${timeoutError}`);
-          trackToolExecution(toolName, parameters, 'output-error', { error: timeoutError }, timeoutError);
-          
-          // Return error instead of rejecting to allow workflow to continue
-          reject(new Error(timeoutError));
-        }
-      }, TOOL_TIMEOUT);
+      // Clear timeout if successful
+      clearTimeout(timeoutId);
       
-      if (toolName === 'screenshot') {
-        chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, handleResponse);
-      } else if (toolName === 'click') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'click',
-          selector: parameters.selector,
-          coordinates: parameters.x !== undefined ? { x: parameters.x, y: parameters.y } : undefined
-        }, handleResponse);
-      } else if (toolName === 'type') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'fill',
-          target: parameters.selector,
-          value: parameters.text
-        }, handleResponse);
-      } else if (toolName === 'scroll') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'scroll',
-          direction: parameters.direction,
-          target: parameters.selector,
-          amount: parameters.amount
-        }, handleResponse);
-      } else if (toolName === 'getPageContext') {
-        chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' }, handleResponse);
-      } else if (toolName === 'navigate') {
-        chrome.runtime.sendMessage({ type: 'NAVIGATE', url: parameters.url }, handleResponse);
-      } else if (toolName === 'getBrowserHistory') {
-        chrome.runtime.sendMessage({ 
-          type: 'GET_HISTORY',
-          query: parameters.query,
-          maxResults: parameters.maxResults
-        }, handleResponse);
-      } else if (toolName === 'pressKey') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'press_key',
-          key: parameters.key
-        }, handleResponse);
-      } else if (toolName === 'clearInput') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'clear_input'
-        }, handleResponse);
-      } else if (toolName === 'keyCombo') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'key_combination',
-          keys: parameters.keys
-        }, handleResponse);
-      } else if (toolName === 'hover') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'hover',
-          coordinates: { x: parameters.x, y: parameters.y }
-        }, handleResponse);
-      } else if (toolName === 'dragDrop') {
-        chrome.runtime.sendMessage({ 
-          type: 'EXECUTE_ACTION', 
-          action: 'drag_drop',
-          coordinates: { x: parameters.x, y: parameters.y },
-          destination: { x: parameters.destination_x, y: parameters.destination_y }
-        }, handleResponse);
-      } else {
-        reject(new Error(`Unknown tool: ${toolName}`));
+      // Track execution duration and success
+      const executionDuration = Date.now() - executionStartTime;
+      trackToolExecution(toolName, parameters, 'output-available', result);
+      
+      console.log(`✅ [executeTool] ${toolName} completed in ${executionDuration}ms`);
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown tool execution error';
+      // Ensure timeout is cleared on failure as well
+      if (timeoutId) clearTimeout(timeoutId);
+      const executionDuration = Date.now() - executionStartTime;
+      
+      console.error(`❌ [executeTool] ${toolName} failed after ${executionDuration}ms:`, errorMessage);
+
+      // Gracefully handle restricted pages (e.g., chrome:// URLs)
+      if (errorMessage.includes('chrome://')) {
+        console.warn(`⚠️ [executeTool] ${toolName} encountered restricted URL. Returning cached context.`);
+        const fallbackResult = {
+          success: true,
+          url: browserTabUrlRef.current || '',
+          pageContext: {
+            url: browserTabUrlRef.current || '',
+            title: '',
+            textContent: '',
+            links: [],
+            images: [],
+            forms: [],
+            metadata: {},
+            viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0, devicePixelRatio: 1 },
+          },
+          error: errorMessage,
+        };
+        trackToolExecution(toolName, parameters, 'output-available', fallbackResult);
+        return fallbackResult;
       }
+
+      // Retry logic for transient failures
+      const transientErrors = [
+        'timeout',
+        'network error',
+        'connection lost',
+        'receiving end does not exist'
+      ];
+      
+      const isTransientError = transientErrors.some(errorType => 
+        errorMessage.toLowerCase().includes(errorType)
+      );
+      
+      if (isTransientError && retryCount < MAX_RETRIES) {
+        console.log(`🔄 [executeTool] Retrying ${toolName} due to transient error... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        
+        setTimeout(async () => {
+          try {
+            const result = await executeTool(toolName, parameters, retryCount + 1);
+            return result;
+          } catch (retryError) {
+            // Track final failure
+            trackToolExecution(toolName, parameters, 'output-error', undefined, errorMessage);
+            throw retryError;
+          }
+        }, RETRY_DELAY);
+        
+        return; // Don't throw here, let the retry handle it
+      }
+      
+      // Final failure - track it
+      trackToolExecution(toolName, parameters, 'output-error', undefined, errorMessage);
+      throw error;
+    }
+  };
+
+  /**
+   * Enhanced tool tracking with metadata and deterministic structure
+   */
+  const trackToolExecution = (
+    toolName: string, 
+    input: any, 
+    state: 'input-available' | 'output-available' | 'output-error',
+    output?: any,
+    errorText?: string
+  ) => {
+    const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const execution = {
+      toolCallId: executionId,
+      toolName,
+      state,
+      input,
+      output,
+      errorText,
+      timestamp: Date.now(),
+      duration: Date.now() - (input?._startTime || Date.now()),
+      metadata: {
+        retryCount: input?._retryCount || 0,
+        browserTabId: browserTabIdRef.current ?? undefined,
+        url: browserTabUrlRef.current || undefined,
+        ...input?._metadata
+      }
+    };
+
+    // Update the last assistant message using replaceMessageById via helper
+    updateLastMessage((msg) => {
+      if (msg.role !== 'assistant') return msg;
+
+      const updatedToolExecutions = [...(msg.toolExecutions || [])];
+      const existingIndex = updatedToolExecutions.findIndex(exec => exec.toolCallId === executionId);
+      if (existingIndex >= 0) {
+        updatedToolExecutions[existingIndex] = execution;
+      } else {
+        updatedToolExecutions.push(execution);
+      }
+
+      return {
+        ...msg,
+        toolExecutions: updatedToolExecutions,
+        metadata: {
+          ...msg.metadata,
+          lastToolUpdate: Date.now(),
+        },
+      } as Message;
     });
+
+    console.log(`🔧 [trackToolExecution] ${toolName} (${state}):`, {
+      executionId,
+      duration: execution.duration,
+      hasInput: !!input,
+      hasOutput: !!output,
+      hasError: !!errorText
+    });
+  };
+
+  /**
+   * Enhanced tool execution with comprehensive error handling and validation
+   */
+  const executeToolWithValidation = async (toolName: string, parameters: any): Promise<any> => {
+    const startTime = Date.now();
+    
+    try {
+      // Add execution metadata for tracking
+      const enhancedParameters = {
+        ...parameters,
+        _startTime: startTime,
+        _toolName: toolName,
+        _retryCount: 0
+      };
+
+      const result = await executeTool(toolName, enhancedParameters);
+      
+      // Validate result structure
+      if (!result || typeof result !== 'object') {
+        throw new Error(`Tool ${toolName} returned invalid result structure`);
+      }
+
+      // Log successful execution
+      const duration = Date.now() - startTime;
+      console.log(`✅ [executeToolWithValidation] ${toolName} completed in ${duration}ms`);
+      
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`❌ [executeToolWithValidation] ${toolName} failed after ${duration}ms:`, error);
+      throw error;
+    }
+  };
+
+  /**
+   * Create deterministic tool result with consistent structure
+   */
+  const createDeterministicToolResult = (
+    toolName: string,
+    success: boolean,
+    data?: any,
+    error?: string,
+    metadata: Record<string, any> = {}
+  ) => {
+    return {
+      success,
+      data,
+      error,
+      timestamp: Date.now(),
+      toolName,
+      toolCallId: `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      duration: Date.now() - (metadata.startTime || Date.now()),
+      metadata: {
+        ...metadata,
+        deterministic: true,
+        version: '1.0'
+      }
+    };
+  };
+
+  /**
+   * Enhanced tool execution with preliminary results and streaming
+   */
+  const executeToolWithStreaming = async function* (toolName: string, parameters: any) {
+    const startTime = Date.now();
+    
+    try {
+      yield { type: 'status', stage: 'preparing', message: `Preparing ${toolName}...` };
+      
+      // Add execution metadata
+      const enhancedParameters = {
+        ...parameters,
+        _startTime: startTime,
+        _toolName: toolName,
+        streaming: true
+      };
+
+      yield { type: 'status', stage: 'executing', message: `Executing ${toolName}...` };
+      
+      // Execute the tool
+      const result = await executeToolWithValidation(toolName, enhancedParameters);
+      
+      yield { type: 'status', stage: 'completed', message: `${toolName} completed successfully` };
+      yield { type: 'result', data: result, duration: Date.now() - startTime };
+      
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      yield { type: 'error', error: error instanceof Error ? error.message : 'Unknown error', duration };
+    }
   };
 
   const loadSettings = async (forceRefresh = false) => {
@@ -292,13 +450,13 @@ function ChatSidebar() {
           migratedSettings.provider === 'google'; // Also migrate old Google Direct API users
 
         if (needsMigration) {
-          console.log('🔄 [Migration] Updating to Google Gemini via AI Gateway');
+          console.log('🔄 [Migration] Updating to default model via gateway');
           console.log('   Old model:', migratedSettings.model);
           migratedSettings = {
             ...migratedSettings,
             provider: 'gateway',
-            model: 'google/gemini-2.5-flash-lite-preview-09-2025',
-            computerUseEngine: 'gateway-flash-lite',
+            model: 'google/gemini-2.5-flash', // Keep user's choice or use good default
+            computerUseEngine: 'gateway', // Use gateway engine (not flash-lite specific)
           };
           console.log('   New model:', migratedSettings.model);
 
@@ -306,13 +464,13 @@ function ChatSidebar() {
           chrome.storage.local.set({ atlasSettings: migratedSettings });
         }
 
-        console.log('🔑 Loaded settings:', {
-          provider: migratedSettings.provider,
-          model: migratedSettings.model,
-          hasApiKey: !!migratedSettings.apiKey,
-          apiKeyLength: migratedSettings.apiKey?.length,
-          apiKeyPrefix: migratedSettings.apiKey?.substring(0, 10) + '...'
-        });
+          console.log('🔑 Loaded settings:', JSON.stringify({
+            provider: migratedSettings.provider,
+            model: migratedSettings.model,
+            hasApiKey: !!migratedSettings.apiKey,
+            apiKeyLength: migratedSettings.apiKey?.length,
+            apiKeyPrefix: migratedSettings.apiKey?.substring(0, 10) + '...'
+          }, null, 2));
         setSettings(migratedSettings);
 
         // Initialize Braintrust if API key is provided
@@ -383,6 +541,17 @@ function ChatSidebar() {
     }
   }, []);
 
+  // AutoStickWatcher renders inside the StickToBottom context
+  const AutoStickWatcher = ({ count, lastRole }: { count: number; lastRole?: string }) => {
+    const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+    useEffect(() => {
+      if (lastRole === 'user' || isAtBottom) {
+        scrollToBottom();
+      }
+    }, [count]);
+    return null;
+  };
+
   const openSettings = () => {
     chrome.runtime.openOptionsPage();
   };
@@ -407,62 +576,59 @@ function ChatSidebar() {
   };
 
   const getComputerUseEngine = () => {
-    if (!settings) return 'google';
-    return settings.computerUseEngine || (settings.provider === 'google' ? 'google' : 'gateway-flash-lite');
+    if (!settings) return 'gateway';
+    return settings.computerUseEngine || (settings.provider === 'google' ? 'google' : 'gateway');
   };
 
   const getComputerUseLabel = () => {
+    // Use the user's selected model when available, only fallback to defaults when no model is set
+    if (settings?.model) {
+      return settings.model;
+    }
+
     const engine = getComputerUseEngine();
     return engine === 'google' ? 'gemini-2.5-computer-use-preview-10-2025' : 'google/gemini-2.5-flash-lite-preview-09-2025';
   };
 
   const toggleBrowserTools = async () => {
-    const newValue = !browserToolsEnabled;
+    // Browser tools are always enabled - this function is disabled
+    if (!settings) {
+      alert('⚠️ Please configure your settings first.');
+      openSettings();
+      return;
+    }
 
-    // Check if user has correct provider/API key before enabling Browser Tools
-    if (newValue) {
-      if (!settings) {
-        alert('⚠️ Please configure your settings first.');
-        openSettings();
+    const engine = getComputerUseEngine();
+    if (engine === 'google') {
+      if (settings.provider !== 'google' || !settings.apiKey) {
+        const confirmed = window.confirm(
+          '🌐 Browser Tools (Google Computer Use) requires a Google API key.\n\nWould you like to open Settings to add your Google API key?'
+        );
+        if (confirmed) openSettings();
         return;
       }
-
-      const engine = getComputerUseEngine();
-      if (engine === 'google') {
-        if (settings.provider !== 'google' || !settings.apiKey) {
-          const confirmed = window.confirm(
-            '🌐 Browser Tools (Google Computer Use) requires a Google API key.\n\nWould you like to open Settings to add your Google API key?'
-          );
-          if (confirmed) openSettings();
-          return;
-        }
-      } else {
-        // gateway-flash-lite
-        if (settings.provider !== 'gateway' || !settings.apiKey) {
-          const confirmed = window.confirm(
-            '🌐 Browser Tools (AI Gateway Flash Lite) requires an AI Gateway API key.\n\nWould you like to open Settings to add your AI Gateway API key?'
-          );
-          if (confirmed) openSettings();
-          return;
-        }
+    } else {
+      // gateway-flash-lite
+      if (settings.provider !== 'gateway' || !settings.apiKey) {
+        const confirmed = window.confirm(
+          '🌐 Browser Tools (AI Gateway Flash Lite) requires an AI Gateway API key.\n\nWould you like to open Settings to add your AI Gateway API key?'
+        );
+        if (confirmed) openSettings();
+        return;
       }
     }
 
-    setBrowserToolsEnabled(newValue);
-
-    if (newValue) {
-      // Clear MCP cache when enabling browser tools
-      if (mcpClientRef.current) {
-        try {
-          await mcpClientRef.current.close();
-        } catch (error) {
-          console.error('Error closing MCP client:', error);
-        }
+    // Clear MCP cache on initialization
+    if (mcpClientRef.current) {
+      try {
+        await mcpClientRef.current.close();
+      } catch (error) {
+        console.error('Error closing MCP client:', error);
       }
-      mcpClientRef.current = null;
-      mcpToolsRef.current = null;
-      setShowBrowserToolsWarning(false);
     }
+    mcpClientRef.current = null;
+    mcpToolsRef.current = null;
+    setShowBrowserToolsWarning(false);
   };
 
   const stop = () => {
@@ -475,7 +641,6 @@ function ChatSidebar() {
   const newChat = async () => {
     // Clear messages and tool executions
     setMessages([]);
-    setToolExecutions([]);
     setShowBrowserToolsWarning(false);
     
     // Force close and clear ALL cached state
@@ -502,7 +667,7 @@ function ChatSidebar() {
         
         chrome.storage.local.set({ 
           composioSessionId: toolRouterSession.sessionId,
-          composioChatMcpUrl: toolRouterSession.chatMcpUrl || toolRouterSession.chatSessionMcpUrl,
+          composioChatMcpUrl: toolRouterSession.chatSessionMcpUrl || toolRouterSession.chatMcpUrl,
           composioToolRouterMcpUrl: toolRouterSession.toolRouterMcpUrl,
         });
         
@@ -633,94 +798,32 @@ function ChatSidebar() {
 
       // GEPA-optimized system prompt: enhanced through AI-powered evolutionary optimization
       // Run ID: run-1761861321816
-      const systemInstruction = `You are a browser automation assistant with ONLY browser control capabilities.
+      const systemInstruction = `You are a browser automation assistant with browser-only capabilities.
 
-CRITICAL: You can ONLY use the computer_use tool functions for browser automation. DO NOT attempt to call any other functions like print, execute, or any programming functions.
+You MUST use the provided browser tools exactly as documented. Never invent new functions or call arbitrary code helpers.
 
-AVAILABLE ACTIONS (computer_use tool only):
-- click / click_at: Click at coordinates
-- type_text_at: Type text (optionally with press_enter)
-- scroll / scroll_down / scroll_up: Scroll the page
-- navigate: Navigate to a URL
-- wait / wait_5_seconds: Wait for page load
+AVAILABLE ACTIONS (computer_use tool interface):
+- navigate({ url: string }) — open a URL (must include protocol like https://)
+- getPageContext() — retrieve the latest DOM summary before acting (no parameters needed)
+- click({ selector?: string, x?: number, y?: number }) — click element by CSS selector OR coordinates (provide one or the other)
+- type_text({ selector?: string, text: string, press_enter?: boolean }) — type text into input by selector or focused element
+- scroll({ direction?: "up"|"down"|"top"|"bottom", amount?: number, selector?: string }) — scroll page or element
+- wait({ seconds: number }) — pause for specified seconds (max 60)
+- press_key({ key: string }) — press single key like "Enter", "Tab", "Escape"
+- key_combination({ keys: string[] }) — press key combination like ["Control", "A"]
 
-GUIDELINES (Validated Patterns):
-1. NAVIGATION: Use 'navigate' function to go to websites
-   Example: navigate({url: "https://www.reddit.com"})
-   - Always wait 2.5s after navigation for page load
-   - Verify page loaded by checking screenshot for expected content
+CORE LOOP — **THINK → ACT → VERIFY**
+1. THINK: State the immediate objective. Inspect page context to locate real selectors, URLs, or element labels. If you lack context, call getPageContext first.
+2. ACT: Choose the correct tool with all required parameters. Prefer selectors from context; if using coordinates, explain why.
+3. VERIFY: After each action, wait if needed, then confirm the result via getPageContext or visible page changes. If the result is unexpected, adjust plan or parameters.
 
-2. INTERACTION: Use coordinates from the screenshot you see
-   - Click at coordinates to interact with elements
-   - Type text at coordinates to fill forms
-   - Wait for elements to be visible before interacting (check screenshot)
-
-3. NO HALLUCINATING: Only use the functions listed above. Do NOT invent or call functions like print(), execute(), or any code functions.
-
-4. EFFICIENCY: Complete tasks in fewest steps possible.
-
-VALIDATED EXECUTION PATTERNS:
-- Visual computer use requires waiting for page state changes (check screenshots)
-- After navigation, wait 2.5s minimum before next action
-- After form submission, wait 1.5s minimum for page response
-- Verify action success by checking screenshot for expected result
-- If screenshot shows error or unexpected state, pause and reassess
-
-**Your Core Strategy: Think -> Act**
-
-For each step, follow this strict cycle:
-
-1. **THINK:**
-   - **Goal:** State your single, immediate objective (e.g., "Click the 'Login' button")
-   - **Observation:** Analyze the screenshot you see. Identify the target element by:
-     * Looking for text labels or ARIA labels that match your goal
-     * Identifying visual elements (buttons, inputs, links) by their appearance and position
-     * Determining the center coordinates (x, y) of the interactive element
-   - **Decision:** Confirm the element and coordinates before acting
-     * Example: "Goal: Click 'Login' button. Observation: I see a button labeled 'Login' at approximately coordinates (400, 300). Decision: I will click at (400, 300)."
-
-2. **ACT:**
-   - Execute the single action using the coordinates from your THINK step
-   - Use the appropriate tool: click_at, type_text_at, navigate, scroll, or wait
-
-3. **VERIFY:**
-   - After each action, observe the new screenshot
-   - Confirm the action succeeded by checking for expected changes:
-     * Page navigation occurred
-     * Text appeared in input field
-     * New page content loaded
-     * Button state changed
-   - If verification fails, re-evaluate and try alternative coordinates or approach
-
-**GUIDELINES (Validated Patterns):**
-
-1. NAVIGATION:
-   - Use navigate({url: "https://example.com"}) to go to websites
-   - Always wait 2.5s after navigation for page load
-   - Verify page loaded by checking screenshot for expected content (title, main content)
-
-2. INTERACTION:
-   - Always THINK before ACTING - identify element by label/text first, then coordinates
-   - Target the center of interactive elements (buttons, inputs, links)
-   - For input fields, click first to focus, then type
-   - Wait for elements to be visible before interacting
-
-3. NO HALLUCINATING:
-   - Only use the functions listed above
-   - Do NOT invent functions like print(), execute(), or any code functions
-   - If an element isn't visible, scroll to find it before acting
-
-4. EFFICIENCY:
-   - Complete tasks in fewest steps possible
-   - One action per Think->Act cycle
-   - Verify success before proceeding to next step
-
-**VALIDATED EXECUTION PATTERNS:**
-- After navigation, wait 2.5s minimum before next action
-- After form submission, wait 1.5s minimum for page response
-- Verify action success by checking screenshot for expected result
-- If screenshot shows error or unexpected state, pause and reassess
-- Use scroll when needed elements are not visible in current viewport
+MANDATORY PRACTICES
+- Before interacting with new elements, gather fresh context (getPageContext).
+- Never guess selectors—use the ones provided in context responses.
+- After navigate, wait at least 2.5 seconds before issuing the next command.
+- When typing, click/focus first if necessary, then type_text, and optionally press Enter.
+- Execute one tool call per step, then verify success.
+- On failure, explain the issue, adjust (scroll, wait, new selector), and retry or escalate to the user.
 
 ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBlock + '\n' : ''}`;
 
@@ -1438,20 +1541,46 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         
         console.log('🚀 [Gateway Computer Use] Starting browser automation workflow');
         console.log('🚀 [Gateway Computer Use] User query:', userQuery.substring(0, 100));
-        console.log('🚀 [Gateway Computer Use] Settings:', {
+        console.log('🚀 [Gateway Computer Use] Settings:', JSON.stringify({
           provider: settings?.provider,
           model: settings?.model,
           hasBraintrust: !!settings?.braintrustApiKey,
           hasYouApi: !!settings?.youApiKey,
-        });
+        }, null, 2));
         
+        // Helper to query active tab info
+        const getActiveTabInfo = async (): Promise<{ id?: number; url?: string }> => {
+          return new Promise((resolve) => {
+            try {
+              chrome.runtime?.sendMessage({ type: 'GET_TAB_INFO' }, (info) => {
+                resolve(info || {});
+              });
+            } catch (error) {
+              resolve({});
+            }
+          });
+        };
+
         // Get initial page context
         let initialPageContext: any = null;
-        let currentUrl = '';
+        let currentUrl = browserTabUrlRef.current || '';
         try {
-          initialPageContext = await executeTool('getPageContext', {});
-          currentUrl = initialPageContext?.url || '';
-          console.log('🌐 [Gateway Computer Use] Initial page context retrieved, URL:', currentUrl);
+          const tabInfo = await getActiveTabInfo();
+          if (tabInfo?.id) browserTabIdRef.current = tabInfo.id as number;
+          if (tabInfo?.url) {
+            browserTabUrlRef.current = tabInfo.url;
+            currentUrl = tabInfo.url;
+          }
+
+          const isRestricted = tabInfo?.url?.startsWith('chrome://');
+          if (isRestricted) {
+            console.warn('⚠️ Skipping initial page context (restricted URL):', tabInfo?.url);
+          } else {
+            initialPageContext = await executeTool('getPageContext', {});
+            currentUrl = initialPageContext?.url || currentUrl;
+            browserTabUrlRef.current = currentUrl || browserTabUrlRef.current;
+            console.log('🌐 [Gateway Computer Use] Initial page context retrieved, URL:', currentUrl);
+          }
         } catch (e) {
           console.warn('⚠️ Could not get initial page context:', e);
         }
@@ -1460,8 +1589,12 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         const getPageContextAfterAction = async (): Promise<PageContext> => {
           try {
             const ctx = await executeTool('getPageContext', {});
+            if (ctx?.url) {
+              currentUrl = ctx.url;
+              browserTabUrlRef.current = ctx.url;
+            }
             return {
-              url: ctx?.url || '',
+              url: ctx?.url || currentUrl || '',
               title: ctx?.title || '',
               textContent: ctx?.text || ctx?.textContent || '',
               links: ctx?.links || [],
@@ -1473,7 +1606,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           } catch (e) {
             console.warn('Failed to get page context after action:', e);
             return { 
-              url: '', 
+              url: currentUrl || browserTabUrlRef.current || '', 
               title: '', 
               textContent: '', 
               links: [], 
@@ -1485,16 +1618,20 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           }
         };
         
-        const enrichToolResponseForWorkflow = async (res: any, _toolName: string) => {
+        const enrichToolResponseForWorkflow = async (res: any, toolName: string) => {
           try {
+            // For very fast navigations, add a small delay before reading context
+            if (toolName === 'navigate') {
+              await new Promise(resolve => setTimeout(resolve, 400));
+            }
             const pageCtx = await getPageContextAfterAction();
             return {
               success: res?.success !== false,
-              url: pageCtx.url || res?.url,
+              url: pageCtx.url || res?.url || currentUrl,
               pageContext: pageCtx,
             };
           } catch (e) {
-            return { success: res?.success !== false, url: res?.url };
+            return { success: res?.success !== false, url: res?.url || currentUrl };
           }
         };
         
@@ -1509,7 +1646,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           settings: {
             provider: settings.provider || 'gateway',
             apiKey: settings.apiKey,
-            model: settings.model || 'google/gemini-2.5-flash-lite-preview-09-2025',
+            model: settings.model || 'google/gemini-2.5-flash',
             braintrustApiKey: settings.braintrustApiKey,
             braintrustProjectName: settings.braintrustProjectName,
             youApiKey: settings.youApiKey,
@@ -1550,59 +1687,113 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         
         // Ensure final summary is displayed (fix for streaming not updating UI)
         if (workflowOutput.summarization?.success && workflowOutput.summarization.summary) {
-          console.log('📊 [Gateway Computer Use] Displaying final summary (', workflowOutput.summarization.summary.length, 'chars)');
-          
+          console.log('📊 [Gateway Computer Use] Displaying successful summary (', workflowOutput.summarization.summary.length, 'chars)');
+
           // Import task manager for workflow tasks
           const { convertLegacyTasks } = await import('./lib/task-manager');
-          
+
           // Always push a final summary message to ensure it's visible
           // This ensures the summary shows even if streaming updates didn't work
-          const finalSummaryMessage: Message = {
-            id: `summary-final-${Date.now()}`,
-            role: 'assistant',
-            content: `---\n## Summary & Next Steps\n\n${workflowOutput.summarization.summary}`,
-            summarization: workflowOutput.summarization,
-            executionTrajectory: workflowOutput.executionTrajectory,
-            pageContext: workflowOutput.pageContext,
-            workflowMetadata: {
-              workflowId: workflowOutput.metadata?.workflowId,
-              totalDuration: workflowOutput.totalDuration,
-              finalUrl: workflowOutput.finalUrl,
-            },
-            workflowTasks: workflowOutput.taskManager ? 
-              convertLegacyTasks(workflowOutput.taskManager.getAllTasks()).map(t => ({
-                id: t.id,
-                title: t.title,
-                description: t.description,
-                status: t.status === 'cancelled' || t.status === 'retrying' ? 'pending' as const : t.status,
-              }))
-              : undefined,
-          } as Message;
-          
+          const finalSummaryMessage: Message = buildFinalSummaryMessage(workflowOutput);
+
+          console.log('📝 [Gateway Computer Use] Final summary message prepared:', {
+            id: finalSummaryMessage.id,
+            role: finalSummaryMessage.role,
+            contentLength: finalSummaryMessage.content.length,
+            hasSummarization: !!finalSummaryMessage.summarization,
+            hasExecutionTrajectory: !!finalSummaryMessage.executionTrajectory,
+            contentPreview: finalSummaryMessage.content.substring(0, 100) + '...',
+            contentSample: finalSummaryMessage.content.split('\n').slice(0, 5).join('\n')
+          });
+
           // Use @ai-sdk-tools/store API correctly - just push the message
           // The store will handle state updates
-          pushMessage(finalSummaryMessage);
-          
+          console.log('📝 [Gateway Computer Use] About to push final summary message:', {
+            messageId: finalSummaryMessage.id,
+            messageContentLength: finalSummaryMessage.content.length,
+            currentMessagesLength: messages.length
+          });
+
+           try {
+             // Replace the most recent summary if one already exists to avoid duplicates
+             const current = Array.isArray(messages) ? messages : [];
+             const lastSummaryIndexFromEnd = current
+               .slice()
+               .reverse()
+               .findIndex(m => m.role === 'assistant' && m.content?.includes('Summary & Next Steps'));
+             if (lastSummaryIndexFromEnd >= 0) {
+               const idx = current.length - 1 - lastSummaryIndexFromEnd;
+               const existing = current[idx];
+               if (existing) {
+                 console.log('♻️  [Gateway Computer Use] Replacing prior summary message:', { id: existing.id, idx });
+                 replaceMessageById(existing.id, { ...finalSummaryMessage, id: existing.id });
+               } else {
+                 pushMessage(finalSummaryMessage);
+               }
+             } else {
+               const result = pushMessage(finalSummaryMessage);
+               console.log('✅ [Gateway Computer Use] Successfully pushed final summary message:', {
+                 result,
+                 messageId: finalSummaryMessage.id,
+                 newMessagesLength: messages.length + 1
+               });
+             }
+           } catch (error) {
+             console.error('❌ [Gateway Computer Use] Failed to push/replace final summary message:', error);
+             // Fallback: try again with a slight delay
+             console.log('🔄 [Gateway Computer Use] Retrying in 100ms...');
+             setTimeout(() => {
+               try {
+                 const retryResult = pushMessage(finalSummaryMessage);
+                 console.log('✅ [Gateway Computer Use] Retry successful:', retryResult);
+               } catch (retryError) {
+                 console.error('❌ [Gateway Computer Use] Retry also failed:', retryError);
+               }
+             }, 100);
+           }
+
+          // Scroll to bottom to ensure the summary is visible
+          setTimeout(() => {
+            scrollToBottom(true);
+            console.log('📜 [Gateway Computer Use] Scrolled to bottom to show summary');
+            resumeAutoscrollIfNearBottom();
+          }, 100);
+
+          // Verify message was added
+          console.log('📝 [Gateway Computer Use] Current messages count after push:', messages.length + 1);
           console.log('✅ [Gateway Computer Use] Final summary message pushed to UI');
         } else {
-          console.warn('⚠️ [Gateway Computer Use] No summary to display', {
+          console.warn('⚠️ [Gateway Computer Use] Summarization failed or missing', {
             hasSummarization: !!workflowOutput.summarization,
             summarizationSuccess: workflowOutput.summarization?.success,
             summaryLength: workflowOutput.summarization?.summary?.length || 0,
+            error: workflowOutput.summarization?.error,
           });
-          
-          // If no summary, at least show a completion message
-          pushMessage({
-            id: `completion-${Date.now()}`,
-            role: 'assistant',
-            content: `✅ **Workflow Complete**\n\nExecution finished successfully with ${workflowOutput.executionTrajectory.length} step(s).\n\n**Final URL**: ${workflowOutput.finalUrl || 'N/A'}`,
-            executionTrajectory: workflowOutput.executionTrajectory,
-            workflowMetadata: {
-              workflowId: workflowOutput.metadata?.workflowId,
-              totalDuration: workflowOutput.totalDuration,
-              finalUrl: workflowOutput.finalUrl,
-            },
-          });
+
+          // Build a unified fallback summary and replace/prioritize it
+          const completionMessage: Message = buildFinalSummaryMessage(workflowOutput);
+          try {
+            const current = Array.isArray(messages) ? messages : [];
+            const lastSummaryIndexFromEnd = current
+              .slice()
+              .reverse()
+              .findIndex(m => m.role === 'assistant' && m.content?.includes('Summary & Next Steps'));
+            if (lastSummaryIndexFromEnd >= 0) {
+              const idx = current.length - 1 - lastSummaryIndexFromEnd;
+              const existing = current[idx];
+              if (existing) {
+                console.log('♻️  [Gateway Computer Use] Replacing prior summary (fallback):', { id: existing.id, idx });
+                replaceMessageById(existing.id, { ...completionMessage, id: existing.id });
+              } else {
+                pushMessage(completionMessage);
+              }
+            } else {
+              pushMessage(completionMessage);
+            }
+          } catch (error) {
+            console.error('❌ [Gateway Computer Use] Failed to push/replace fallback summary:', error);
+            setTimeout(() => pushMessage(completionMessage), 100);
+          }
         }
         
         return workflowOutput;
@@ -1697,6 +1888,28 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         const gatewayClient = createGateway({ apiKey: settings.apiKey });
         model = gatewayClient(settings.model);
         console.log('✅ [streamWithAISDK] AI Gateway client created for model:', settings.model);
+      } else if (settings!.provider === 'openrouter') {
+        if (!settings?.apiKey) {
+          throw new Error('OpenRouter API key is required. Please set it in settings.');
+        }
+        console.log('🔑 [streamWithAISDK] Creating OpenRouter client with key:', settings.apiKey.substring(0, 10) + '...');
+        const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+        const openRouterClient = createOpenRouter({ apiKey: settings.apiKey });
+        model = openRouterClient(settings.model);
+        console.log('✅ [streamWithAISDK] OpenRouter client created for model:', settings.model);
+      } else if (settings!.provider === 'nim') {
+        if (!settings?.apiKey) {
+          throw new Error('NVIDIA NIM API key is required. Please set it in settings.');
+        }
+        console.log('🔑 [streamWithAISDK] Creating NVIDIA NIM client with key:', settings.apiKey.substring(0, 10) + '...');
+        const { createOpenAI } = await import('@ai-sdk/openai');
+        // NIM uses OpenAI-compatible API
+        const nimClient = createOpenAI({
+          apiKey: settings.apiKey,
+          baseURL: 'https://integrate.api.nvidia.com/v1',
+        });
+        model = nimClient(settings.model);
+        console.log('✅ [streamWithAISDK] NVIDIA NIM client created for model:', settings.model);
       } else {
         if (!settings?.apiKey) {
           throw new Error('Google API key is required. Please set it in settings.');
@@ -1757,62 +1970,30 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
     };
 
     const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    pushMessage(userMessage);
     setIsLoading(true);
-    setIsUserScrolled(false); // Reset scroll state when user sends message
+    // Autoscroll handled by AutoStickWatcher
 
     abortControllerRef.current = new AbortController();
 
     try {
-      // Determine if browser tools should be used
-      // Auto-detect based on provider + computer use engine settings
+      // Browser tools are now MANDATORY - no more conditional checks
+      // Auto-detect based on provider selection
       const engine = getComputerUseEngine();
-      const shouldUseBrowserTools = browserToolsEnabled || 
-        (settings.provider === 'gateway' && engine === 'gateway-flash-lite' && settings.apiKey) ||
-        (settings.provider === 'google' && engine === 'google' && settings.apiKey);
+          console.log('🔧 [handleSubmit] Browser tools MANDATORY - using engine', { provider: settings.provider, engine, hasApiKey: !!settings.apiKey, model: settings.model });
 
-      // BROWSER TOOLS MODE - Use selected engine
-      if (shouldUseBrowserTools) {
-        console.log('🔧 [handleSubmit] Browser tools mode detected', { browserToolsEnabled, provider: settings.provider, engine, hasApiKey: !!settings.apiKey });
-
-        if (engine === 'google') {
-          // Safety check: Ensure we have Google API key
-          if (settings.provider !== 'google' || !settings.apiKey) {
-            setBrowserToolsEnabled(false);
-            updateLastMessage((msg) => ({
-              ...msg,
-              content: msg.role === 'assistant' 
-                ? '⚠️ **Browser Tools (Google Computer Use) requires a Google API key**\n\nPlease:\n1. Open Settings (⚙️)\n2. Select "Google" as provider\n3. Add your Google API key\n4. Try again'
-                : msg.content
-            }));
-            setIsLoading(false);
-            return;
-          }
-
-          if (mcpClientRef.current) {
-            try {
-              await mcpClientRef.current.close();
-            } catch (e) {
-              // Silent fail
-            }
-            mcpClientRef.current = null;
-            mcpToolsRef.current = null;
-          }
-
-          await streamWithGeminiComputerUse(newMessages);
-        } else {
-          // gateway-flash-lite
-          if (settings.provider !== 'gateway' || !settings.apiKey) {
-            setBrowserToolsEnabled(false);
-            updateLastMessage((msg) => ({
-              ...msg,
-              content: msg.role === 'assistant'
-                ? '⚠️ **Browser Tools (AI Gateway Flash Lite) requires an AI Gateway API key**\n\nPlease:\n1. Open Settings (⚙️)\n2. Select "AI Gateway" as provider\n3. Add your AI Gateway API key\n4. Try again'
-                : msg.content
-            }));
-            setIsLoading(false);
-            return;
-          }
+      // Gateway/OpenRouter providers use AI Gateway
+      if (settings.provider === 'gateway' || settings.provider === 'openrouter') {
+        if (!settings.apiKey) {
+          updateLastMessage((msg) => ({
+            ...msg,
+            content: msg.role === 'assistant'
+              ? '⚠️ **Browser Tools requires an API key**\n\nPlease:\n1. Open Settings (⚙️)\n2. Add your API key for your selected provider\n3. Try again'
+              : msg.content
+          }));
+          setIsLoading(false);
+          return;
+        }
 
           if (mcpClientRef.current) {
             try { await mcpClientRef.current.close(); } catch {}
@@ -1823,469 +2004,459 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           console.log('🚀 [handleSubmit] Using Gateway Computer Use workflow');
           await streamWithGatewayComputerUse(newMessages);
         }
-      } else if (settings.composioApiKey) {
-        if (isComposioSessionExpired()) {
-          console.warn('Composio session expired, reinitializing...');
-          await loadSettings(true);
-        }
 
-        const isComputerUseModel = settings.model === 'gemini-2.5-computer-use-preview-10-2025';
-        if (isComputerUseModel && settings.provider === 'google') {
-          setSettings({ ...settings, model: 'gemini-2.5-pro' });
-          console.warn('Switching to gemini-2.5-pro (incompatible with MCP)');
-        }
+        setIsLoading(false);
+      } catch (error: any) {
+        console.error('❌ Chat error occurred:');
+        console.error('Error type:', typeof error);
+        console.error('Error name:', error?.name);
+        console.error('Error message:', error?.message);
+        console.error('Error stack:', error?.stack);
+        console.error('Full error object:', error);
 
-        if (mcpClientRef.current && mcpToolsRef.current) {
-          await streamWithAISDKAndMCP(newMessages, mcpToolsRef.current);
-        } else if (mcpInitPromiseRef.current) {
-          await mcpInitPromiseRef.current;
-          if (mcpClientRef.current && mcpToolsRef.current) {
-            await streamWithAISDKAndMCP(newMessages, mcpToolsRef.current);
-          } else {
-            // Use AI SDK for gateway provider, otherwise use Google streaming
-            if (settings.provider === 'gateway') {
-              await streamWithAISDK(newMessages);
-            } else {
-              await streamGoogle(newMessages, abortControllerRef.current.signal);
-            }
-          }
-        } else {
-          console.log('🔧 [handleSubmit] No browser tools, checking MCP/Tool Router');
-          mcpInitPromiseRef.current = (async () => {
-            try {
-              const storage = await chrome.storage.local.get(['composioToolRouterMcpUrl', 'composioSessionId', 'atlasSettings']);
-              if (!storage.composioToolRouterMcpUrl || !storage.composioSessionId) {
-                console.log('⚠️ [handleSubmit] No MCP session, will use standard streaming');
-                return;
-              }
-              console.log('🔌 [handleSubmit] MCP session found, initializing client');
-
-              // MCP client creation - check if available in AI SDK
-              const aiModule = await import('ai');
-              const createMCPClient = (aiModule as any).createMCPClient || (aiModule as any).experimental_createMCPClient;
-              
-              if (!createMCPClient) {
-                console.warn('MCP client creation not available in AI SDK version');
-                return;
-              }
-
-              const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-              const composioApiKey = storage.atlasSettings?.composioApiKey;
-
-              const transportOptions: any = { sessionId: storage.composioSessionId };
-              if (composioApiKey) {
-                transportOptions.headers = { 'x-api-key': composioApiKey };
-              }
-
-              const mcpClient = await createMCPClient({
-                transport: new StreamableHTTPClientTransport(
-                  new URL(storage.composioToolRouterMcpUrl),
-                  transportOptions
-                ),
-              });
-
-              const mcpTools = await mcpClient.tools();
-              if (Object.keys(mcpTools).length > 0) {
-                mcpClientRef.current = mcpClient;
-                mcpToolsRef.current = mcpTools;
-              } else {
-                await mcpClient.close();
-              }
-            } catch (error) {
-              console.error('MCP init failed:', error);
-            } finally {
-              mcpInitPromiseRef.current = null;
-            }
-          })();
-
-          await mcpInitPromiseRef.current;
-
-          if (mcpClientRef.current && mcpToolsRef.current) {
-            console.log('🔌 [handleSubmit] MCP client ready, calling streamWithAISDKAndMCP');
-            await streamWithAISDKAndMCP(newMessages, mcpToolsRef.current);
-          } else {
-            // Use AI SDK for gateway provider, otherwise use Google streaming
-            console.log('🚀 [handleSubmit] No MCP, using standard streaming');
-            if (settings.provider === 'gateway') {
-              console.log('🟢 [handleSubmit] Calling streamWithAISDK (gateway)');
-              await streamWithAISDK(newMessages);
-            } else {
-              console.log('🔵 [handleSubmit] Calling streamGoogle');
-              await streamGoogle(newMessages, abortControllerRef.current.signal);
-            }
-          }
-        }
-      } else {
-        // Use AI SDK for gateway provider, otherwise use Google streaming
-        console.log('🚀 [handleSubmit] Tool router disabled, using standard streaming');
-        if (settings.provider === 'gateway') {
-          console.log('🟢 [handleSubmit] Calling streamWithAISDK (gateway)');
-          await streamWithAISDK(newMessages);
-        } else {
-          console.log('🔵 [handleSubmit] Calling streamGoogle');
-          await streamGoogle(newMessages, abortControllerRef.current.signal);
-        }
-      }
-      
-      setIsLoading(false);
-    } catch (error: any) {
-      // Error handling is the same
-      console.error('❌ Chat error occurred:');
-      console.error('Error type:', typeof error);
-      console.error('Error name:', error?.name);
-      console.error('Error message:', error?.message);
-      console.error('Error stack:', error?.stack);
-      console.error('Full error object:', error);
-
-      if (error.name !== 'AbortError') {
-        // Show detailed error message to user
-        const errorDetails = error?.stack || JSON.stringify(error, null, 2);
-        const filteredMessages = messages.filter(m => m.content !== '');
-        setMessages([
-          ...filteredMessages,
-          {
+        if (error.name !== 'AbortError') {
+          // Show detailed error message to user
+          const errorDetails = error?.stack || JSON.stringify(error, null, 2);
+          pushMessage({
             id: Date.now().toString(),
             role: 'assistant',
             content: `Error: ${error.message}\n\nDetails:\n\`\`\`\n${errorDetails}\n\`\`\``,
-          },
-        ]);
+          });
+        }
+        setIsLoading(false);
       }
-      setIsLoading(false);
+  };
+
+  // Handle follow-up option click
+  const handleFollowUpOptionClick = async (prompt: string) => {
+    try {
+      await handleComposerSubmit(prompt);
+    } catch (e) {
+      console.error('Failed to submit follow-up option:', e);
     }
   };
 
-  // Check if user is scrolled to bottom
-  const isAtBottom = () => {
-    if (!messagesContainerRef.current) return true;
-    const container = messagesContainerRef.current;
-    const threshold = 100; // pixels from bottom
-    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+  // Render a small form for input-style follow-ups
+  const FollowUpsInputForm = ({ messageId, inputs }: { messageId: string; inputs: Array<{ type: string; question: string; placeholder?: string | number; suggestions?: string[] }> }) => {
+    const [answers, setAnswers] = useState<Record<number, string | number>>({});
+
+    const handleChange = (idx: number, value: string) => {
+      setAnswers((prev) => ({ ...prev, [idx]: value }));
+    };
+
+    const handleSubmitInputs = async () => {
+      const compiled = inputs
+        .map((q, idx) => `- ${q.question}: ${answers[idx] ?? ''}`)
+        .join('\n');
+      const prompt = `Follow-up answers for previous step:\n${compiled}`;
+      await handleComposerSubmit(prompt);
+    };
+
+    return (
+      <div className="mt-2 rounded-lg border border-border bg-card p-2 space-y-2">
+        <div className="text-sm font-medium text-foreground">Follow-Ups</div>
+        {inputs.map((q, idx) => {
+          const inputId = `${messageId}-fu-${idx}`;
+          const dataListId = `${messageId}-fu-dl-${idx}`;
+          const type = q.type === 'number' ? 'number' : q.type === 'date' ? 'date' : 'text';
+          return (
+            <div key={inputId} className="flex items-center gap-2">
+              <label htmlFor={inputId} className="min-w-36 text-xs text-muted-foreground">
+                {q.question}
+              </label>
+              <input
+                id={inputId}
+                type={type}
+                list={q.suggestions && q.suggestions.length ? dataListId : undefined}
+                placeholder={q.placeholder !== undefined ? String(q.placeholder) : ''}
+                className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+                onChange={(e) => handleChange(idx, e.target.value)}
+              />
+              {q.suggestions && q.suggestions.length > 0 && (
+                <datalist id={dataListId}>
+                  {q.suggestions.map((s, i) => (
+                    <option key={`${dataListId}-${i}`} value={s} />
+                  ))}
+                </datalist>
+              )}
+            </div>
+          );
+        })}
+        <div className="pt-1">
+          <Button size="sm" variant="secondary" onClick={handleSubmitInputs}>
+            <Send className="h-3 w-3 opacity-75 mr-1" /> Submit
+          </Button>
+        </div>
+      </div>
+    );
   };
 
-  // Handle scroll detection
-  const handleScroll = () => {
-    setIsUserScrolled(!isAtBottom());
-  };
-
-  // Auto-scroll to bottom when messages change (unless user scrolled up)
-  useEffect(() => {
-    if (!isUserScrolled) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isUserScrolled]);
-
-  // Attach scroll listener
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
-  }, []);
+  // Auto-scroll behavior handled by use-stick-to-bottom via Conversation wrapper.
+  // We still keep a simple flag to reset any manual scroll gating when user sends a message.
 
   if (showSettings && !settings) {
     return (
-      <div className="chat-container">
-        <div className="welcome-message" style={{ padding: '40px 20px' }}>
-          <h2>Welcome to Opulent</h2>
-          <p style={{ marginBottom: '20px' }}>Please configure your AI provider to get started.</p>
-          <button
-            onClick={openSettings}
-            className="settings-icon-btn"
-            style={{ width: 'auto', padding: '12px 24px' }}
-          >
-            Open Settings
-          </button>
+      <div className="relative flex h-screen w-full flex-col overflow-hidden bg-secondary">
+        <div className="flex h-full w-full flex-col">
+          <div className="chat-header border-b bg-background/95">
+            <div style={{ flex: 1 }}>
+              <h1 className="text-lg font-semibold text-foreground">Opulent</h1>
+              <p style={{ marginBottom: '20px' }}>Please configure your AI provider to get started.</p>
+              <button
+                onClick={openSettings}
+                className="settings-icon-btn"
+                style={{ width: 'auto', padding: '12px 24px' }}
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="chat-container dark-mode">
-      <div className="chat-header">
-        <div style={{ flex: 1 }}>
-          <h1>Opulent</h1>
-          <p>
-            {(settings?.provider
-              ? settings.provider === 'gateway' ? 'AI Gateway' : settings.provider.charAt(0).toUpperCase() + settings.provider.slice(1)
-              : 'Unknown')} · {browserToolsEnabled ? getComputerUseLabel() : (settings?.model || 'No model')}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button
-            onClick={toggleBrowserTools}
-            className={`settings-icon-btn ${browserToolsEnabled ? 'active' : ''}`}
-            title={browserToolsEnabled ? 'Disable Browser Tools' : 'Enable Browser Tools'}
-            disabled={isLoading}
-          >
-            {browserToolsEnabled ? '◉' : '○'}
-          </button>
-          <button
-            onClick={newChat}
-            className="settings-icon-btn"
-            title="New Chat"
-            disabled={isLoading}
-          >
-            +
-          </button>
-          <button
-            onClick={openSettings}
-            className="settings-icon-btn"
-            title="Settings"
-          >
-            ⋯
-          </button>
-        </div>
-      </div>
-
-      {showBrowserToolsWarning && (
-        <div style={{
-          padding: '12px 16px',
-          background: '#fef3c7',
-          borderBottom: '1px solid #fbbf24',
-          fontSize: '13px',
-          color: '#92400e',
-        }}>
-          <strong>Browser Tools Enabled!</strong> Now using {getComputerUseLabel()}.
-          {!settings?.apiKey && (
-            <span> Please <a href="#" onClick={(e) => { e.preventDefault(); openSettings(); }} style={{ color: '#2563eb', textDecoration: 'underline' }}>set your API key</a> in settings.</span>
-          )}
-        </div>
-      )}
-
-      <div className="messages-container" ref={messagesContainerRef}>
-        {messages.length === 0 ? (
-          <div className="welcome-message">
-            <h2>How can I help you today?</h2>
-            <p>I'm Opulent, your AI assistant. I can help you browse the web, analyze content, and perform various tasks.</p>
+    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-secondary">
+      <div className="flex h-full w-full flex-col chat-interface">
+        <div className="chat-header border-b bg-background/95 backdrop-blur-sm">
+          <div style={{ flex: 1 }}>
+            <h1 className="text-lg font-semibold text-foreground">Opulent</h1>
+            <p className="text-sm text-muted-foreground">
+              {(settings?.provider
+                ? settings.provider === 'gateway' ? 'AI Gateway' : settings.provider.charAt(0).toUpperCase() + settings.provider.slice(1)
+                : 'Unknown')} · {settings?.model || getComputerUseLabel()}
+            </p>
           </div>
-        ) : (
-          <>
-            {/* Display messages in chronological order (like a normal chat) */}
-            {messages.map((message, index) => {
-              // Filter out intermediate reasoning updates - they clutter the UI
-              if (message.role === 'assistant' && message.content.includes('💭 **Reasoning Update**')) {
-                return null;
-              }
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              onClick={toggleBrowserTools}
+              className="settings-icon-btn transition-all duration-200 hover:scale-105 active"
+              title="Browser Tools (Always Enabled)"
+              disabled={isLoading}
+            >
+              ◉
+            </button>
+            <button
+              onClick={newChat}
+              className="settings-icon-btn transition-all duration-200 hover:scale-105"
+              title="New Chat"
+              disabled={isLoading}
+            >
+              +
+            </button>
+            <button
+              onClick={openSettings}
+              className="settings-icon-btn transition-all duration-200 hover:scale-105"
+              title="Settings"
+            >
+              ⋯
+            </button>
+          </div>
+        </div>
 
-              const isStepMessage = message.role === 'assistant' && (
-                message.content.includes('**Step') || 
-                message.content.includes('Planning Phase') ||
-                message.content.includes('Planning Complete')
-              );
+        {showBrowserToolsWarning && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-sm text-amber-800">
+            <strong>Browser Tools Active!</strong> Using {getComputerUseLabel()}.
+            {!settings?.apiKey && (
+              <span> Please <a href="#" onClick={(e) => { e.preventDefault(); openSettings(); }} className="text-blue-600 underline hover:text-blue-800">set your API key</a> in settings.</span>
+            )}
+          </div>
+        )}
 
-              return (
-                <div
-                  key={message.id}
-                  className={`mx-auto w-full max-w-[44rem] animate-in fade-in slide-in-from-bottom-1 duration-200 py-4 ${
-                    message.role === 'user' ? 'grid grid-cols-[minmax(72px,1fr)_auto] gap-y-2 px-2' : 'px-2'
-                  }`}
-                  style={{
-                    animation: 'fadeInUp 0.4s ease-out forwards',
-                  }}
-                >
-                  <div className={`${
-                    message.role === 'user' 
-                      ? 'col-start-2 rounded-3xl bg-muted px-5 py-2.5 break-words text-foreground max-w-[85%] ml-auto'
-                      : 'leading-7 break-words text-foreground w-full'
-                  }`}>
-                    {message.content ? (
-                      <>
-                        {/* Show content based on message type */}
-                        {message.role === 'assistant' ? (
-                          <>
-                            {/* Display tool executions using enhanced structured component */}
-                            {message.toolExecutions && message.toolExecutions.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <EnhancedToolCallDisplay 
-                                  toolParts={message.toolExecutions.map(exec => ({
-                                    type: exec.toolName,
-                                    state: exec.state,
-                                    input: exec.input,
-                                    output: exec.output,
-                                    toolCallId: exec.toolCallId,
-                                    errorText: exec.errorText,
-                                  }))}
-                                />
-                              </div>
+        <div className="flex-1 overflow-hidden">
+          <Conversation className="h-full">
+            <ConversationContent className="h-full" data-testid="chat-messages">
+              <AutoStickWatcher count={(Array.isArray(messages) ? messages : []).length} lastRole={(Array.isArray(messages) && messages.length > 0) ? messages[messages.length - 1].role : undefined} />
+              {(!Array.isArray(messages) || messages.length === 0) ? (
+                <div className="flex h-full items-center justify-center">
+                  <div className="welcome-message text-center">
+                    <h2 className="mb-4 text-2xl font-bold text-foreground">How can I help you today?</h2>
+                    <p className="text-muted-foreground">I'm Opulent, your AI assistant. I can help you browse the web, analyze content, and perform various tasks.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {(Array.isArray(messages) ? messages : []).map((message, index) => {
+                    // Debug logging for message rendering
+                    if (message.content?.includes('Summary & Next Steps')) {
+                      console.log('🎨 [UI] Rendering summary message:', {
+                        id: message.id,
+                        role: message.role,
+                        contentLength: message.content.length,
+                        hasSummarization: !!message.summarization,
+                        hasWorkflowTasks: !!message.workflowTasks,
+                        contentPreview: message.content.substring(0, 200) + '...',
+                        messageKeys: Object.keys(message)
+                      });
+                    }
+
+                    // Filter out intermediate reasoning updates - they clutter the UI
+                    if (message.role === 'assistant' && message.content.includes('💭 **Reasoning Update**')) {
+                      return null;
+                    }
+
+                    // Never filter out summary messages - always show them
+                    if (message.content?.includes('Summary & Next Steps')) {
+                      console.log('🎯 [UI] Ensuring summary message is visible');
+                    }
+
+                    const isStepMessage = message.role === 'assistant' && (
+                      message.content.includes('**Step') ||
+                      message.content.includes('Planning Phase') ||
+                      message.content.includes('Planning Complete')
+                    );
+
+                    return (
+                      <div
+                        key={message.id}
+                        className="mx-auto w-full max-w-4xl animate-in fade-in slide-in-from-bottom-1 duration-200 py-2"
+                      >
+                        <Message from={message.role as "user" | "assistant"}>
+                          <MessageContent
+                            className={cn(
+                              message.role === 'user' 
+                                ? "rounded-xl rounded-br-sm border bg-background text-foreground"
+                                : "bg-transparent text-foreground"
                             )}
-                            
-                            {/* Display workflow task list (mastra-hitl inspired clean UI) */}
-                            {message.workflowTasks && message.workflowTasks.length > 0 && (
-                              <WorkflowTaskList
-                                  tasks={message.workflowTasks}
-                                autoExpand={index === messages.length - 1}
-                                emphasizedTasks={new Set(
-                                  message.workflowTasks
-                                    .filter(t => t.status === 'new' || t.status === 'in_progress')
-                                    .map(t => t.id)
-                                )}
-                                />
-                            )}
-                            
-                            {/* Display reasoning tokens (OpenRouter/Atlas chain-of-thought) - AI Elements primitive */}
-                            {message.reasoning && message.reasoning.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <Reasoning 
-                                  isStreaming={isLoading && index === messages.length - 1}
-                                  defaultOpen={false}
-                                  className="rounded-lg border border-border bg-card"
-                                >
-                                  <ReasoningTrigger />
-                                  <ReasoningContent className="space-y-2 pt-3">
-                                    {message.reasoning.map((thought, idx) => (
-                                      <div 
-                                        key={idx}
-                                        className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground"
-                                      >
-                                        <div className="font-medium text-foreground mb-1">
-                                          Thought {idx + 1}
-                                        </div>
-                                        <div className="whitespace-pre-wrap">
-                                          {thought}
+                          >
+                            {message.content ? (
+                              <>
+                                {/* Show content based on message type */}
+                                {message.role === 'assistant' ? (
+                                  <>
+                                    {/* Display tool executions using enhanced structured component */}
+                                    {message.toolExecutions && message.toolExecutions.length > 0 && (
+                                      <div style={{ marginBottom: '8px' }}>
+                                        <EnhancedToolCallDisplay 
+                                          toolParts={message.toolExecutions.map(exec => ({
+                                            type: exec.toolName,
+                                            state: exec.state,
+                                            input: exec.input,
+                                            output: exec.output,
+                                            toolCallId: exec.toolCallId,
+                                            errorText: exec.errorText,
+                                          }))}
+                                        />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display workflow task list (mastra-hitl inspired clean UI) */}
+                                    {message.workflowTasks && message.workflowTasks.length > 0 && (
+                                      <WorkflowTaskList
+                                        tasks={message.workflowTasks}
+                                        autoExpand={index === messages.length - 1}
+                                        emphasizedTasks={new Set(
+                                          message.workflowTasks
+                                            .filter(t => t.status === 'new' || t.status === 'in_progress')
+                                            .map(t => t.id)
+                                        )}
+                                      />
+                                    )}
+                                    
+                                    {/* Display reasoning tokens (OpenRouter/Atlas chain-of-thought) - AI Elements primitive */}
+                                    {message.reasoning && message.reasoning.length > 0 && (
+                                      <div style={{ marginBottom: '8px' }}>
+                                        <Reasoning 
+                                          isStreaming={isLoading && index === messages.length - 1}
+                                          defaultOpen={false}
+                                          className="rounded-lg border border-border bg-card"
+                                        >
+                                          <ReasoningTrigger />
+                                          <ReasoningContent className="space-y-2 pt-3">
+                                            {message.reasoning.map((thought, idx) => (
+                                              <div 
+                                                key={idx}
+                                                className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground"
+                                              >
+                                                <div className="font-medium text-foreground mb-1">
+                                                  Thought {idx + 1}
+                                                </div>
+                                                <div className="whitespace-pre-wrap">
+                                                  {thought}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </ReasoningContent>
+                                        </Reasoning>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display planning using enhanced structured component */}
+                                    {message.planning && (
+                                      <div style={{ marginBottom: '8px' }}>
+                                        <EnhancedPlanDisplay 
+                                          plan={message.planning.plan}
+                                          confidence={message.planning.confidence}
+                                          defaultOpen={false}
+                                        />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display page context artifact */}
+                                    {message.pageContext && (
+                                      <div style={{ marginBottom: '8px' }}>
+                                        <PageContextArtifact pageContext={message.pageContext} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display summarization artifact */}
+                                    {message.summarization && (
+                                      <div style={{ marginBottom: '8px' }}>
+                                        <SummarizationArtifact summarization={message.summarization} />
+                                      </div>
+                                    )}
+
+                                    {/* Render Follow-Ups as clickable buttons (basic UI) */}
+                                    {message?.metadata?.hasFollowUps && message?.metadata?.followUps?.select && (
+                                      <div className="mt-2 rounded-lg border border-border bg-card p-2">
+                                        <div className="mb-2 text-sm font-medium text-foreground">Follow-Ups</div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {message.metadata.followUps.select.map((opt: any, idx: number) => (
+                                            <Button
+                                              key={`${message.id}-fu-${idx}`}
+                                              size="sm"
+                                              variant="secondary"
+                                              onClick={() => handleFollowUpOptionClick(opt.prompt)}
+                                              title={opt.prompt}
+                                            >
+                                              <span className="mr-1">{opt.emoji}</span>
+                                              {opt.title}
+                                              <Send className="ml-2 h-3 w-3 opacity-75" />
+                                            </Button>
+                                          ))}
                                         </div>
                                       </div>
-                                    ))}
-                                  </ReasoningContent>
-                                </Reasoning>
-                              </div>
-                            )}
+                                    )}
 
-                            {/* Display planning using enhanced structured component */}
-                            {message.planning && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <EnhancedPlanDisplay 
-                                  plan={message.planning.plan}
-                                  confidence={message.planning.confidence}
-                                  defaultOpen={false}
-                                />
-                              </div>
-                            )}
-                            
-                            {/* Display page context artifact */}
-                            {message.pageContext && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <PageContextArtifact pageContext={message.pageContext} />
-                              </div>
-                            )}
-                            
-                            {/* Display summarization artifact */}
-                            {message.summarization && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <SummarizationArtifact summarization={message.summarization} />
-                              </div>
-                            )}
-                            
-                            {/* Display error analysis artifact */}
-                            {message.errorAnalysis && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <ErrorAnalysisArtifact errorAnalysis={message.errorAnalysis} />
-                              </div>
-                            )}
-                            
-                            {/* Display execution trajectory artifact */}
-                            {message.executionTrajectory && message.executionTrajectory.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <ExecutionTrajectoryArtifact trajectory={message.executionTrajectory} />
-                              </div>
-                            )}
-                            
-                            {/* Display workflow metadata artifact */}
-                            {message.workflowMetadata && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <WorkflowMetadataArtifact 
-                                  metadata={message.workflowMetadata}
-                                  totalDuration={message.workflowMetadata.totalDuration}
-                                  finalUrl={message.workflowMetadata.finalUrl}
-                                />
-                              </div>
-                            )}
-                            
-                            {/* Display step visualization using prompt-kit Steps component */}
-                            {isStepMessage && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <EnhancedStepDisplay messages={[message]} />
-                              </div>
-                            )}
-                            
-                            {/* Thinking indicator: Show when tools are processing or when content indicates continuation */}
-                            {(() => {
-                              const processingTools = message.toolExecutions?.filter(e => e.state === 'input-streaming') || [];
-                              const hasProcessingTools = processingTools.length > 0;
-                              const isContinuing = message.content?.includes('_Continuing') || message.content?.includes('_Executing step');
-                              
-                              if (hasProcessingTools || (isContinuing && !message.content.match(/\*\*|#|Step \d+:/))) {
-                                return (
-                                  <div style={{ 
-                                    padding: '12px', 
-                                    background: 'rgba(59, 130, 246, 0.05)',
-                                    borderRadius: '6px',
-                                    marginBottom: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    fontSize: '13px',
-                                    color: '#6b7280'
-                                  }}>
-                                    <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span>
-                                      {hasProcessingTools 
-                                        ? `Executing ${processingTools.length} tool${processingTools.length > 1 ? 's' : ''}...`
-                                        : 'Processing next step...'
+                                    {message?.metadata?.hasFollowUps && message?.metadata?.followUps?.input && (
+                                      <FollowUpsInputForm messageId={message.id} inputs={message.metadata.followUps.input} />
+                                    )}
+                                    
+                                    {/* Display error analysis artifact */}
+                                    {message.errorAnalysis && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <ErrorAnalysisArtifact errorAnalysis={message.errorAnalysis} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display execution trajectory artifact */}
+                                    {message.executionTrajectory && message.executionTrajectory.length > 0 && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <ExecutionTrajectoryArtifact trajectory={message.executionTrajectory} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display workflow metadata artifact */}
+                                    {message.workflowMetadata && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <WorkflowMetadataArtifact 
+                                          metadata={message.workflowMetadata}
+                                          totalDuration={message.workflowMetadata.totalDuration}
+                                          finalUrl={message.workflowMetadata.finalUrl}
+                                        />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Display step visualization using prompt-kit Steps component */}
+                                    {isStepMessage && (
+                                      <div style={{ marginBottom: '12px' }}>
+                                        <EnhancedStepDisplay messages={[message]} />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Thinking indicator: Show when tools are processing or when content indicates continuation */}
+                                    {(() => {
+                                      const processingTools = message.toolExecutions?.filter(e => e.state === 'input-streaming') || [];
+                                      const hasProcessingTools = processingTools.length > 0;
+                                      const isContinuing = message.content?.includes('_Continuing') || message.content?.includes('_Executing step');
+                                      
+                                      if (hasProcessingTools || (isContinuing && !message.content.match(/\*\*|#|Step \d+:/))) {
+                                        return (
+                                          <div style={{ 
+                                            padding: '12px', 
+                                            background: 'rgba(59, 130, 246, 0.05)',
+                                            borderRadius: '6px',
+                                            marginBottom: '8px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            fontSize: '13px',
+                                            color: '#6b7280'
+                                          }}>
+                                            <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            <span>
+                                              {hasProcessingTools ? 'Processing tools...' : 'Thinking...'}
+                                            </span>
+                                          </div>
+                                        );
                                       }
-                                    </span>
-                                  </div>
-                                );
-                              }
-                              return null;
-                            })()}
-                            
-                            {/* Display regular message content - AI Elements Response primitive */}
-                            {message.content && (
-                              <Response 
-                                isAnimating={isLoading && index === messages.length - 1}
-                                parseIncompleteMarkdown={true}
-                                components={{ a: LinkComponent as any }}
-                                className="prose prose-invert max-w-none"
-                              >
-                                {message.content}
-                              </Response>
+                                      return null;
+                                    })()}
+                                    
+                                    {/* Enhanced Response primitive for streaming content */}
+                                    <Response>{message.content}</Response>
+                                  </>
+                                ) : (
+                                  <Response>{message.content}</Response>
+                                )}
+                              </>
+                            ) : (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Generating response...</span>
+                              </div>
                             )}
-                          </>
-                        ) : (
-                          message.content
-                        )}
-                      </>
-                    ) : (
-                      isLoading && message.role === 'assistant' && (
-                        <div className="typing-indicator">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                      )
-                    )}
-                  </div>
-                    </div>
-              );
-            })}
-          </>
-        )}
-      </div>
+                          </MessageContent>
+                        </Message>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </ConversationContent>
+            {/* Show scroll-to-bottom button when user scrolls up */}
+            <ConversationScrollButton />
 
-      <div className="input-form">
-        <AgentComposerIntegration
-          onSubmit={handleComposerSubmit}
-          isLoading={isLoading}
-          disabled={!settings?.apiKey}
-          showSettings={true}
-          onSettingsClick={() => setShowSettings(true)}
-        />
+            {/* Fixed input form structure */}
+            <div className="input-form backdrop-blur-sm">
+              <div className="mx-auto max-w-4xl w-full">
+                <AgentComposerIntegration
+                  onSubmit={handleComposerSubmit}
+                  isLoading={isLoading}
+                  disabled={!settings?.apiKey}
+                  showSettings={true}
+                  onSettingsClick={() => setShowSettings(true)}
+                  modelSelector={settings && (
+                    <ModelMorphDropdown
+                      provider={settings.provider}
+                      value={settings.model}
+                      label="Model"
+                      onSelect={(modelId) => {
+                        try {
+                          const next = { ...(settings || {}), model: modelId } as Settings;
+                          chrome.storage.local.set({ atlasSettings: next }, () => {
+                            setSettings(next);
+                          });
+                        } catch (e) {
+                          console.error('Failed to update model:', e);
+                        }
+                      }}
+                    />
+                  )}
+                />
+              </div>
+            </div>
+          </Conversation>
+        </div>
       </div>
+      
       <div ref={messagesEndRef} />
       
       {/* AI SDK Devtools - shows streaming events, tool calls, and performance metrics */}

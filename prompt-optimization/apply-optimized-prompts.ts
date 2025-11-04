@@ -33,12 +33,19 @@ const SOURCE_FILES = {
     variable: 'sys',
     description: 'Search result evaluation prompt',
   },
-  'browser-automation': {
+  'browser-automation-legacy': {
     path: join(__dirname, '..', 'workflows', 'browser-automation-workflow.legacy.ts'),
-    startLine: 118,
-    endLine: 220,
+    startLine: 1234,
+    endLine: 1399,
     variable: 'systemLines',
-    description: 'Legacy browser automation workflow with enhanced reasoning patterns',
+    description: 'Legacy browser automation agent system prompt with advanced reasoning patterns',
+  },
+  'browser-automation-enhanced': {
+    path: join(__dirname, '..', 'workflows', 'browser-automation-workflow-enhanced.ts'),
+    startLine: 339,
+    endLine: 440,
+    variable: 'systemPrompt',
+    description: 'Enhanced browser automation agent with evaluation loop and advanced reasoning',
   },
   'gemini-computer-use': {
     path: join(__dirname, '..', 'sidepanel.tsx'),

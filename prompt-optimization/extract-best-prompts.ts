@@ -61,7 +61,7 @@ async function extractBestPrompts(promptName: string): Promise<{
 async function main() {
   console.log('📋 Extracting Best Optimized Prompts\n');
 
-  const prompts = ['planner', 'evaluator', 'browser-automation', 'gemini-computer-use'];
+  const prompts = ['planner', 'evaluator', 'browser-automation-legacy', 'browser-automation-enhanced', 'gemini-computer-use'];
   const results: Record<string, any> = {};
 
   for (const promptName of prompts) {
@@ -86,7 +86,8 @@ async function main() {
   console.log('\n💡 Next: Apply these prompts to source files:');
   console.log('   - planner.ts (line 124-168) - Planning agent with validation strategies');
   console.log('   - evaluator.ts (line 59-61) - Search result evaluation');
-  console.log('   - workflows/browser-automation-workflow.legacy.ts (line 118-220) - Enhanced browser automation');
+  console.log('   - workflows/browser-automation-workflow.legacy.ts (line 1234-1399) - Legacy browser automation');
+  console.log('   - workflows/browser-automation-workflow-enhanced.ts (line 339-440) - Enhanced browser automation with evaluation');
   console.log('   - sidepanel.tsx (line 645-678) - Gemini computer use');
   console.log('\n📊 Enhanced with:');
   console.log('   ✓ State-aware execution (no state assumptions)');

@@ -59,6 +59,14 @@ export async function summarizationStep(
     const sNeg = /(not achieved|failed|incomplete|did not complete)/.test(s);
     if (sPos && !sNeg) return true;
     if (sNeg && !sPos) return false;
+    // Additional guard: require at least one getPageContext after the last navigate in the outcome
+    const lines = (outcomeText || '').split(/\n+/).map(l => l.trim());
+    const idxNavigate = [...lines].reverse().findIndex(l => /step\s+\d+.*navigate/i.test(l));
+    if (idxNavigate >= 0) {
+      const lastNavIndex = lines.length - 1 - idxNavigate;
+      const hasContextAfterNav = lines.slice(lastNavIndex + 1).some(l => /getpagecontext/i.test(l));
+      if (!hasContextAfterNav) return false;
+    }
     // Default conservative: not completed
     return false;
   };
@@ -106,9 +114,18 @@ export async function summarizationStep(
           summaryLength: aiSdkResult.summary.length,
           searchResultsUsed: aiSdkResult.searchResults?.length || 0,
         });
-        
+        // Append Sources section if search results were collected (non-streaming mode)
+        let finalSummaryText = aiSdkResult.summary;
+        if (Array.isArray((aiSdkResult as any).searchResults) && (aiSdkResult as any).searchResults.length > 0) {
+          const sources = (aiSdkResult as any).searchResults
+            .slice(0, 10)
+            .map((r: any) => `- ${r.title || r.url} (${r.url || ''})`)
+            .join('\n');
+          finalSummaryText = [finalSummaryText.trim(), '', 'Sources:', sources].join('\n');
+        }
+
         return {
-          summary: aiSdkResult.summary,
+          summary: finalSummaryText,
           duration: aiSdkResult.duration,
           success: true,
           taskCompleted,

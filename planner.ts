@@ -165,6 +165,15 @@ TOOLS (use exact action names)
 - getPageContext — read current page info (target: 'current_page' or section)
 - press_key — press a key (Enter/Tab/Escape)
 
+TOOL DETAILS (planning hints)
+• getPageContext — Plan it immediately after navigate and after state changes to verify; use it to discover selectors and confirm success
+• navigate — Provide complete URLs; follow with getPageContext for verification
+• click — Prefer selectors; plan verification via getPageContext after clicking
+• type_text — Include selector and text; plan clearing if needed (select‑all + delete) then verify; add press_key Enter when appropriate
+• press_key — Use standard keys or key_combination for combos; verify result
+• scroll — Use direction/top/bottom or a target selector; plan incremental discovery and verification
+• wait — Minimal durations; always followed by verification
+
 CRITICAL RULES
 1) Use only the listed actions exactly as named (no waitForElement/getContext variants).
 2) If there is no meaningful current URL/context, plan to navigate first, then call getPageContext before interacting.

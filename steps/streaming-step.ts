@@ -1,6 +1,6 @@
 // 'use step' directive makes this a durable, resumable step
 
-import { streamText, tool } from 'ai';
+import { streamText, tool, stepCountIs, NoSuchToolError, generateObject } from 'ai';
 import { z } from 'zod';
 import { logEvent } from '../lib/braintrust.ts';
 import { streamingDebug } from '../lib/debug-logger.ts';
@@ -130,11 +130,88 @@ export async function streamingStep(
       });
     };
 
+    // Helper: detect info-seeking intent from latest user message
+    const isInfoSeeking = () => {
+      const lastUser = aiMessages.slice().reverse().find((m) => m.role === 'user');
+      const q = (lastUser?.content || '').toLowerCase();
+      return /\b(find|search|news|latest|breaking|what is|who is|tell me about)\b/.test(q);
+    };
+
+    // Helper: determine active tools per step to guide the model
+    const computeActiveTools = (stepNumber: number) => {
+      const actions = input.execSteps.map((s) => s.action.split(':')[0]);
+      const lastNavIdx = actions.lastIndexOf('navigate');
+      const hasContextAfterNav = lastNavIdx >= 0 && actions.slice(lastNavIdx + 1).includes('getPageContext');
+      const hasTyped = actions.includes('type_text');
+      const info = isInfoSeeking();
+
+      if (stepNumber === 0 && !hasContextAfterNav) {
+        // Immediately verify state after navigation or at start
+        return ['getPageContext', 'wait'] as const;
+      }
+
+      if (info && !hasTyped) {
+        // Encourage typing search query and submitting
+        return ['type_text', 'press_key', 'getPageContext', 'wait', 'scroll'] as const;
+      }
+
+      if (info && hasTyped && !actions.includes('click')) {
+        // Encourage clicking a result and verifying
+        return ['click', 'getPageContext', 'wait', 'scroll', 'press_key'] as const;
+      }
+
+      // Default: allow main interaction set
+      return ['navigate', 'getPageContext', 'click', 'type_text', 'press_key', 'scroll', 'wait'] as const;
+    };
+
     const stream = streamText({
       model: input.model,
       system: input.system,
       messages: aiMessages,
       tools: streamingTools,
+      toolChoice: 'required',
+      stopWhen: stepCountIs(8),
+      experimental_context: {
+        objective: aiMessages.slice().reverse().find((m) => m.role === 'user')?.content || '',
+        infoSeeking: isInfoSeeking(),
+        lastActions: input.execSteps.map((s) => s.action),
+      },
+      prepareStep: async ({ stepNumber, steps, messages }) => {
+        const active = computeActiveTools(stepNumber);
+        // Force first step verification if needed
+        const actions = input.execSteps.map((s) => s.action.split(':')[0]);
+        const lastNavIdx = actions.lastIndexOf('navigate');
+        const hasContextAfterNav = lastNavIdx >= 0 && actions.slice(lastNavIdx + 1).includes('getPageContext');
+        if (stepNumber === 0 && !hasContextAfterNav) {
+          return {
+            toolChoice: { type: 'tool', toolName: 'getPageContext' },
+            activeTools: Array.from(active),
+          } as any;
+        }
+        return { activeTools: Array.from(active) } as any;
+      },
+      experimental_repairToolCall: async ({ toolCall, tools, inputSchema, error, messages, system }) => {
+        // Do not attempt to fix unknown tool names
+        if (NoSuchToolError.isInstance(error)) return null;
+        // Attempt structured repair using the tool's input schema
+        try {
+          const toolEntry = tools[toolCall.toolName as keyof typeof tools] as any;
+          const { object: repaired } = await generateObject({
+            model: input.model as any,
+            schema: (inputSchema as any)(toolCall),
+            prompt: [
+              `The model tried to call the tool "${toolCall.toolName}" with the following inputs:`,
+              JSON.stringify(toolCall.input),
+              `The tool accepts the following schema:`,
+              JSON.stringify((inputSchema as any)(toolCall)),
+              'Please fix the inputs to satisfy the schema.',
+            ].join('\n'),
+          });
+          return { ...toolCall, input: JSON.stringify(repaired) } as any;
+        } catch {
+          return null;
+        }
+      },
       maxSteps: 15,
       abortSignal: input.abortSignal,
       onStepFinish: async (event) => {
@@ -268,7 +345,8 @@ export async function streamingStep(
     const resolvedChunkCount = chunkCount > 0 ? chunkCount : fullText ? 1 : 0;
 
     const output: StreamingStepOutput = {
-      fullText: fullText || 'Browser automation tasks completed.',
+      // Avoid generic completion text; leave empty if model produced no content
+      fullText: fullText || '',
       textChunkCount: resolvedChunkCount,
       toolCallCount,
       toolExecutions,

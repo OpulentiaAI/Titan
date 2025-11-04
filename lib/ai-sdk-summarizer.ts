@@ -157,6 +157,33 @@ Provide your analysis following the format specified in the system prompt.`;
         system: enrichedSystemPrompt,
         prompt: userPrompt,
         tools,
+        toolChoice: input.youApiKey ? 'required' : 'auto',
+        stopWhen: stepCountIs(4),
+        prepareStep: async ({ stepNumber }) => {
+          if (stepNumber === 0 && input.youApiKey) {
+            return { activeTools: ['searchWeb'] } as any;
+          }
+          return {} as any;
+        },
+        experimental_repairToolCall: async ({ toolCall, tools, inputSchema, error }) => {
+          if (NoSuchToolError.isInstance(error)) return null;
+          try {
+            const { object: repaired } = await generateObject({
+              model: input.model as any,
+              schema: (inputSchema as any)(toolCall),
+              prompt: [
+                `The model tried to call the tool "${toolCall.toolName}" with the following inputs:`,
+                JSON.stringify(toolCall.input),
+                `The tool accepts the following schema:`,
+                JSON.stringify((inputSchema as any)(toolCall)),
+                'Please fix the inputs to satisfy the schema.',
+              ].join('\n'),
+            });
+            return { ...toolCall, input: JSON.stringify(repaired) } as any;
+          } catch {
+            return null;
+          }
+        },
         maxTokens: 600,
         temperature: 0.7,
         maxSteps: 3,
@@ -195,6 +222,8 @@ Provide your analysis following the format specified in the system prompt.`;
       system: enrichedSystemPrompt,
       prompt: userPrompt,
       tools,
+      toolChoice: input.youApiKey ? 'required' : 'auto',
+      stopWhen: stepCountIs(3),
       maxTokens: 600,
       temperature: 0.7,
       maxSteps: 3, // Allow up to 3 tool calls for research

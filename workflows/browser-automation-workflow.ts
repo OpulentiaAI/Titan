@@ -869,6 +869,8 @@ export async function browserAutomationWorkflow(
             'URL must be a valid, non-empty string'
           )
         }),
+        onInputStart: () => toolDebug.debug('navigate: input generation started'),
+        onInputAvailable: ({ input }) => toolDebug.debug('navigate: complete input', { input }),
         execute: async ({ url }: { url: string }) => {
           // Additional runtime validation to prevent undefined URLs
           if (!url || url === 'undefined' || url.trim() === '') {
@@ -1098,7 +1100,58 @@ export async function browserAutomationWorkflow(
             }
           }
           
-          // This should never be reached, but TypeScript needs it
+          // All retries exhausted: attempt a robust fallback for information-seeking tasks
+          try {
+            const q = (input.userQuery || '').trim();
+            const looksInfoSeeking = isInfoQuery(q) || /\b(news|latest|breaking)\b/i.test(q);
+            if (looksInfoSeeking && q.length > 0) {
+              // Prefer a search URL that directly advances the objective
+              const fallbackUrl = /\b(news|latest|breaking)\b/i.test(q)
+                ? `https://news.google.com/search?q=${encodeURIComponent(q)}`
+                : `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+
+              toolDebug.info('Navigation fallback: attempting direct search URL', { fallbackUrl });
+
+              // Inform user about fallback attempt
+              context.updateLastMessage((msg) => ({
+                ...msg,
+                content: `${msg.content}\n\n🔁 **Fallback:** Navigating to search results for the request to ensure progress.\nURL: ${fallbackUrl}`,
+              }));
+
+              const res = await context.executeTool('navigate', { url: fallbackUrl });
+
+              if (res?.success) {
+                await new Promise(resolve => setTimeout(resolve, 800));
+                const enriched = await enrichToolResponse(res, 'navigate');
+                const toolDuration = Date.now() - toolStartTime;
+                toolTimer();
+
+                execSteps.push({ step: stepNum, action: 'navigate', url: enriched.url || fallbackUrl, success: enriched.success });
+                executionTrajectory.push({ step: stepNum, action: 'navigate', url: enriched.url || fallbackUrl, success: enriched.success, timestamp: Date.now() });
+
+                context.updateLastMessage((msg) => ({
+                  ...msg,
+                  content: `🔷 **Step ${stepNum}: Navigation Complete (Fallback)** ✅\n\nSuccessfully navigated to ${enriched.url || fallbackUrl}\n⏱️ Duration: ${toolDuration}ms`,
+                  pageContext: enriched.pageContext,
+                  toolExecutions: [{
+                    toolName: 'navigate',
+                    status: 'completed',
+                    params: { url: fallbackUrl },
+                    result: enriched,
+                    duration: toolDuration,
+                    timestamp: Date.now(),
+                  }],
+                  executionTrajectory: executionTrajectory.slice(),
+                }));
+
+                return enriched;
+              }
+            }
+          } catch (fallbackError) {
+            toolDebug.warn('Navigation fallback failed', { error: (fallbackError as any)?.message || String(fallbackError) });
+          }
+
+          // If fallback also failed, throw original error
           throw lastError || new Error('Navigation failed');
         },
       }),
@@ -1196,6 +1249,8 @@ export async function browserAutomationWorkflow(
           x: z.number().optional().describe('X coordinate for position-based click'),
           y: z.number().optional().describe('Y coordinate for position-based click'),
         }),
+        onInputStart: () => toolDebug.debug('click: input generation started'),
+        onInputAvailable: ({ input }) => toolDebug.debug('click: complete input', { input }),
         execute: async ({ selector, x, y }: { selector?: string; x?: number; y?: number }) => {
           const toolStartTime = Date.now();
           const stepNum = execSteps.length + 1;
@@ -1264,6 +1319,8 @@ export async function browserAutomationWorkflow(
           text: z.string(), 
           press_enter: z.boolean().optional() 
         }),
+        onInputStart: () => toolDebug.debug('type_text: input generation started'),
+        onInputAvailable: ({ input }) => toolDebug.debug('type_text: complete input', { input }),
         execute: async ({ selector, text, press_enter }: { selector?: string; text: string; press_enter?: boolean }) => {
           const toolStartTime = Date.now();
           const stepNum = execSteps.length + 1;
@@ -1688,6 +1745,35 @@ export async function browserAutomationWorkflow(
       '- scroll(direction|selector, amount?)',
       '- wait(seconds)',
       '',
+      'TOOL DETAILS',
+      '• getPageContext — View current page content/state',
+      '  Recommended: after any state change (navigate/click/type/scroll) to verify; to monitor progress indicators; when PDFs or dynamic content may require time to load',
+      '  Best Practices: navigation usually returns context automatically; use repeatedly to monitor completion; if blank on PDFs/dynamic views, wait() briefly and call again',
+      '',
+      '• navigate — Open a URL or refresh',
+      '  Recommended: when a new page is needed; when user or search provides a URL; to refresh current page',
+      '  Best Practices: ensure full URL with protocol (https://); verify load via getPageContext (URL/title/visible markers)',
+      '',
+      '• click — Interact with elements',
+      '  Recommended: to open links, submit forms, expand UI, activate controls',
+      '  Best Practices: prefer CSS selector over coordinates; ensure element is visible/clickable via context; after click, verify via getPageContext',
+      '',
+      '• type_text — Enter text (optionally press Enter)',
+      '  Recommended: fill inputs/search bars/forms; set field content',
+      '  Best Practices: prefer selector; if needed, clear field first (e.g., key_combination(["Control","A"]) then press_key("Delete")); set press_enter when appropriate; verify via getPageContext',
+      '',
+      '• press_key — Simulate a key press',
+      '  Recommended: submit forms (Enter), navigate focus (Tab), dismiss modals (Escape)',
+      '  Best Practices: use standard key names; for combos use key_combination(["Control","A"]) etc.; verify effect via getPageContext',
+      '',
+      '• scroll — Move viewport or element',
+      '  Recommended: reveal content above/below; trigger lazy loading; reach top/bottom',
+      '  Best Practices: use direction ("up","down","top","bottom") or selector; small increments for discovery; verify newly loaded content via getPageContext',
+      '',
+      '• wait — Short pauses for dynamic content',
+      '  Recommended: allow time for loads/transitions before verification',
+      '  Best Practices: keep minimal (1–3s); always follow with getPageContext; avoid long idle waits',
+      '',
       'EXECUTION LOOP',
       '- [ANALYZE] Read the instruction and current context',
       '- [PLAN] Select the next atomic action with explicit parameters',
@@ -1718,6 +1804,23 @@ export async function browserAutomationWorkflow(
       'MULTI-STEP TASKS',
       '- Break into sequential steps with verification after each state change',
       '- For navigation paths: navigate/click → getPageContext → choose next link/element → repeat',
+      '',
+      'FINALIZATION GATE',
+      '- Do NOT produce a final natural-language answer or declare completion. The summarizer produces the final report.',
+      '- You may stop only if: (a) you have executed getPageContext at least once after the latest navigation and collected content needed to satisfy the objective but are blocked from further progress; or (b) the objective is ambiguous and cannot be advanced — in that case, ask one concise clarifying question.',
+      "- The phrase 'Browser automation tasks completed.' is disallowed.",
+      '',
+      'MINIMUM ACTION SEQUENCE (Information-Seeking Objectives)',
+      '- If the objective is to find/identify/summarize information: interact if possible (type_text query, press_key Enter), then getPageContext and evaluate, click a relevant element, and getPageContext again. Continue until evidence is gathered or a clarification is necessary.',
+      '',
+      'COMPLETION TRANSFER',
+      '- Do not summarize outcomes. Provide short operational updates only (e.g., typing query, clicking result, verifying).',
+      '',
+      'ANTI-REPETITION',
+      '- Do not repeat the same failing call. Adapt (alternate selector/flow) or ask a concise clarifying question if truly blocked.',
+      '',
+      'EVIDENCE DISCIPLINE',
+      '- Base next actions on verified page context. Never invent selectors or assume state without verification.',
       '',
       'VERIFICATION',
       '- Every state-changing action must be followed by verification prior to proceeding.',
@@ -1844,14 +1947,16 @@ export async function browserAutomationWorkflow(
       console.log('📋 [WORKFLOW] execSteps updated:', execSteps.map(s => ({ step: s.step, action: s.action, success: s.success })));
     }
 
-    // If the agent stopped after only navigating on an information query, re-run agent with
-    // a continuation message that enforces a general, site-agnostic completion pattern.
+    // If the agent failed to verify context after navigation, re-run with a continuation message
     try {
-      const executedActions = new Set(execSteps.map(s => s.action.split(':')[0]));
-      const infoQuery = isInfoQuery(input.userQuery);
-      const onlyNavigated = execSteps.length <= 2 && executedActions.size <= 2 && executedActions.has('navigate');
+      const actions = execSteps.map(s => s.action.split(':')[0]);
+      const lastNavIdx = actions.lastIndexOf('navigate');
+      const hasContextAfterNav = lastNavIdx >= 0 && actions.slice(lastNavIdx + 1).includes('getPageContext');
 
-      if (infoQuery && onlyNavigated) {
+      // Also catch trivial flows with only navigate
+      const trivial = execSteps.length <= 2 && new Set(actions).size <= 2 && actions.includes('navigate');
+
+      if (!hasContextAfterNav || trivial) {
         console.log('🧭 [WORKFLOW] Continuation enforcement activated (agent re-run)');
         const continuationMessage = {
           id: `continue-${Date.now()}`,
@@ -1859,11 +1964,11 @@ export async function browserAutomationWorkflow(
           content: [
             '[CONTINUE_EXECUTION]',
             '',
-            'You must continue execution to complete the objective:',
-            '- Perform additional tool calls to gather information (e.g., type_text into a search field or use in-page navigation).',
-            '- After each state-changing action, verify state with getPageContext().',
-            '- Do not finish until you have opened at least one relevant content page and captured its context.',
-            '- Then synthesize a concise, factual answer from the captured content.',
+            'Continue execution to complete the objective:',
+            '- Immediately verify with getPageContext().',
+            '- If the goal is information-seeking and an input field is present: type_text the query, press_key Enter, getPageContext, click a relevant result, then getPageContext again.',
+            '- After each state-changing action, verify with getPageContext().',
+            '- Do not summarize or declare completion; provide short operational updates only.',
           ].join('\n'),
         };
 
@@ -1888,6 +1993,55 @@ export async function browserAutomationWorkflow(
       }
     } catch (continuationError) {
       console.warn('⚠️ [WORKFLOW] Agent continuation re-run failed', continuationError);
+    }
+
+    // Programmatic progression fallback for information-seeking queries
+    // If we are on a search results page but the agent did not open any external result,
+    // proactively navigate to a likely relevant link from page context.
+    try {
+      const infoQuery = isInfoQuery(input.userQuery) || /\b(news|latest|breaking)\b/i.test(input.userQuery);
+      const lastCtx = await context.getPageContextAfterAction().catch(() => null as any);
+      const currentUrl = lastCtx?.url || '';
+      const onSearchPage = /google\.com\/search|news\.google\.com\/search/i.test(currentUrl);
+
+      const visitedExternal = execSteps.some((s) => s.action === 'navigate' && s.url && !/google\.com/i.test(s.url));
+
+      if (infoQuery && onSearchPage && !visitedExternal) {
+        const links: Array<{ text?: string; href?: string }> = (lastCtx?.links || []) as any;
+        const candidates = links
+          .map((l) => l?.href || '')
+          .filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u))
+          .filter((u) => !/google\.(com|[a-z]+)/i.test(u) && !/accounts\.google/i.test(u) && !/webhp\?hl=/i.test(u));
+
+        // Prefer well-known news domains or any first external link
+        const newsPriority = [
+          'news.google.com', 'cnn.com', 'bbc.com', 'nytimes.com', 'washingtonpost.com', 'reuters.com', 'apnews.com', 'theguardian.com', 'latimes.com', 'wsj.com', 'npr.org'
+        ];
+        const pick = candidates.find((u) => newsPriority.some((d) => u.includes(d))) || candidates[0];
+
+        if (pick) {
+          const stepNum = execSteps.length + 1;
+          context.pushMessage({
+            id: `step-${stepNum}-${Date.now()}`,
+            role: 'assistant',
+            content: `🔗 **Step ${stepNum}: Opening Result**\n\nNavigating to: ${pick}`,
+          });
+
+          const navRes = await context.executeTool('navigate', { url: pick });
+          const enriched = await enrichToolResponse(navRes, 'navigate');
+          execSteps.push({ step: stepNum, action: 'navigate', url: enriched.url || pick, success: enriched.success });
+          executionTrajectory.push({ step: stepNum, action: 'navigate', url: enriched.url || pick, success: enriched.success, timestamp: Date.now() });
+
+          context.updateLastMessage((msg) => ({
+            ...msg,
+            content: `🔗 **Step ${stepNum}: Result Opened** ✅\n\nURL: ${enriched.url || pick}`,
+            pageContext: enriched.pageContext,
+            executionTrajectory: executionTrajectory.slice(),
+          }));
+        }
+      }
+    } catch (progError) {
+      console.warn('⚠️ [WORKFLOW] Programmatic progression fallback failed', (progError as any)?.message || String(progError));
     }
 
 // ============================================

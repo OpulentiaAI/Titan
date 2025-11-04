@@ -125,8 +125,9 @@ function ChatSidebar() {
   };
   
   const [isLoading, setIsLoading] = useState(false);
-  const [browserToolsEnabled, setBrowserToolsEnabled] = useState(false);
-  const [showBrowserToolsWarning, setShowBrowserToolsWarning] = useState(false);
+  // Browser tools are always enabled - hardcoded
+  const browserToolsEnabled = true;
+  const [showBrowserToolsWarning, setShowBrowserToolsWarning] = useState(true);
   const [isUserScrolled, setIsUserScrolled] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const mcpClientRef = useRef<MCPClient | null>(null);
@@ -566,57 +567,54 @@ function ChatSidebar() {
   };
 
   const getComputerUseLabel = () => {
+    // Use the user's selected model when available, only fallback to defaults when no model is set
+    if (settings?.model) {
+      return settings.model;
+    }
+
     const engine = getComputerUseEngine();
     return engine === 'google' ? 'gemini-2.5-computer-use-preview-10-2025' : 'google/gemini-2.5-flash-lite-preview-09-2025';
   };
 
   const toggleBrowserTools = async () => {
-    const newValue = !browserToolsEnabled;
+    // Browser tools are always enabled - this function is disabled
+    if (!settings) {
+      alert('⚠️ Please configure your settings first.');
+      openSettings();
+      return;
+    }
 
-    // Check if user has correct provider/API key before enabling Browser Tools
-    if (newValue) {
-      if (!settings) {
-        alert('⚠️ Please configure your settings first.');
-        openSettings();
+    const engine = getComputerUseEngine();
+    if (engine === 'google') {
+      if (settings.provider !== 'google' || !settings.apiKey) {
+        const confirmed = window.confirm(
+          '🌐 Browser Tools (Google Computer Use) requires a Google API key.\n\nWould you like to open Settings to add your Google API key?'
+        );
+        if (confirmed) openSettings();
         return;
       }
-
-      const engine = getComputerUseEngine();
-      if (engine === 'google') {
-        if (settings.provider !== 'google' || !settings.apiKey) {
-          const confirmed = window.confirm(
-            '🌐 Browser Tools (Google Computer Use) requires a Google API key.\n\nWould you like to open Settings to add your Google API key?'
-          );
-          if (confirmed) openSettings();
-          return;
-        }
-      } else {
-        // gateway-flash-lite
-        if (settings.provider !== 'gateway' || !settings.apiKey) {
-          const confirmed = window.confirm(
-            '🌐 Browser Tools (AI Gateway Flash Lite) requires an AI Gateway API key.\n\nWould you like to open Settings to add your AI Gateway API key?'
-          );
-          if (confirmed) openSettings();
-          return;
-        }
+    } else {
+      // gateway-flash-lite
+      if (settings.provider !== 'gateway' || !settings.apiKey) {
+        const confirmed = window.confirm(
+          '🌐 Browser Tools (AI Gateway Flash Lite) requires an AI Gateway API key.\n\nWould you like to open Settings to add your AI Gateway API key?'
+        );
+        if (confirmed) openSettings();
+        return;
       }
     }
 
-    setBrowserToolsEnabled(newValue);
-
-    if (newValue) {
-      // Clear MCP cache when enabling browser tools
-      if (mcpClientRef.current) {
-        try {
-          await mcpClientRef.current.close();
-        } catch (error) {
-          console.error('Error closing MCP client:', error);
-        }
+    // Clear MCP cache on initialization
+    if (mcpClientRef.current) {
+      try {
+        await mcpClientRef.current.close();
+      } catch (error) {
+        console.error('Error closing MCP client:', error);
       }
-      mcpClientRef.current = null;
-      mcpToolsRef.current = null;
-      setShowBrowserToolsWarning(false);
     }
+    mcpClientRef.current = null;
+    mcpToolsRef.current = null;
+    setShowBrowserToolsWarning(false);
   };
 
   const stop = () => {
@@ -2058,17 +2056,17 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
             <p className="text-sm text-muted-foreground">
               {(settings?.provider
                 ? settings.provider === 'gateway' ? 'AI Gateway' : settings.provider.charAt(0).toUpperCase() + settings.provider.slice(1)
-                : 'Unknown')} · {browserToolsEnabled ? getComputerUseLabel() : (settings?.model || 'No model')}
+                : 'Unknown')} · {settings?.model || getComputerUseLabel()}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
               onClick={toggleBrowserTools}
-              className={`settings-icon-btn transition-all duration-200 hover:scale-105 ${browserToolsEnabled ? 'active' : ''}`}
-              title={browserToolsEnabled ? 'Disable Browser Tools' : 'Enable Browser Tools'}
+              className="settings-icon-btn transition-all duration-200 hover:scale-105 active"
+              title="Browser Tools (Always Enabled)"
               disabled={isLoading}
             >
-              {browserToolsEnabled ? '◉' : '○'}
+              ◉
             </button>
             <button
               onClick={newChat}
@@ -2090,7 +2088,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
 
         {showBrowserToolsWarning && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-sm text-amber-800">
-            <strong>Browser Tools Enabled!</strong> Now using {getComputerUseLabel()}.
+            <strong>Browser Tools Active!</strong> Using {getComputerUseLabel()}.
             {!settings?.apiKey && (
               <span> Please <a href="#" onClick={(e) => { e.preventDefault(); openSettings(); }} className="text-blue-600 underline hover:text-blue-800">set your API key</a> in settings.</span>
             )}

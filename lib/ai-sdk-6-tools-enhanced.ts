@@ -570,7 +570,19 @@ RULES
 CONTEXT
 Current URL: ${params.currentUrl || 'about:blank'}`;
 
-  const systemPrompt = [baseSystemPrompt, renderAddendum('ADDENDUM')].join('\n\n');
+  // Add concise per-tool guidance for performance and reliability
+  const toolDetails = [
+    'TOOL DETAILS',
+    '• getPageContext — verify state after actions; discover selectors; can be repeated to monitor progress',
+    '• navigate — open/refresh pages; ensure full URL; verify with getPageContext',
+    '• click — prefer selectors; ensure visibility/clickability; verify with getPageContext',
+    '• type_text — selector + text; clear if needed (select‑all + delete); optional press_enter; verify result',
+    '• press_key — Enter/Tab/Escape; use key_combination for combos; verify effect',
+    '• scroll — up/down/top/bottom or element selector; trigger lazy loads; verify new content',
+    '• wait — short; always followed by verification',
+  ].join('\n');
+
+  const systemPrompt = [baseSystemPrompt, toolDetails, renderAddendum('ADDENDUM')].join('\n\n');
 
   const result = await orchestrator.execute({
     model: params.model,

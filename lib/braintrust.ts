@@ -1,7 +1,7 @@
 /**
  * Braintrust Integration - Enhanced Telemetry and Logging
- * 
- * Provides comprehensive telemetry capabilities for the Atlas browser automation system
+ *
+ * Provides comprehensive telemetry capabilities for the Opulent Browser automation system
  * with granular logging functions for different types of events and metrics.
  */
 

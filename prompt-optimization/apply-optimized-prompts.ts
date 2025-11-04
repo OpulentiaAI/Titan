@@ -22,26 +22,30 @@ const SOURCE_FILES = {
   planner: {
     path: join(__dirname, '..', 'planner.ts'),
     startLine: 124,
-    endLine: 165,
+    endLine: 168,
     variable: 'systemPrompt',
+    description: 'Planning agent system prompt with validation and fallback strategies',
   },
   evaluator: {
     path: join(__dirname, '..', 'evaluator.ts'),
-    startLine: 49,
-    endLine: 58,
+    startLine: 59,
+    endLine: 61,
     variable: 'sys',
+    description: 'Search result evaluation prompt',
   },
   'browser-automation': {
-    path: join(__dirname, '..', 'workflows', 'browser-automation-workflow.ts'),
-    startLine: 665,
-    endLine: 715,
+    path: join(__dirname, '..', 'workflows', 'browser-automation-workflow.legacy.ts'),
+    startLine: 118,
+    endLine: 220,
     variable: 'systemLines',
+    description: 'Legacy browser automation workflow with enhanced reasoning patterns',
   },
   'gemini-computer-use': {
     path: join(__dirname, '..', 'sidepanel.tsx'),
     startLine: 645,
     endLine: 678,
     variable: 'systemInstruction',
+    description: 'Gemini computer use system instruction',
   },
 };
 
@@ -56,6 +60,7 @@ async function applyOptimizedPrompt(promptName: string, optimizedPrompt: string)
   const lines = sourceContent.split('\n');
 
   console.log(`📝 Applying optimized prompt to ${sourceFile}`);
+  console.log(`   ${sourceConfig.description || 'System prompt'}`);
   console.log(`   Lines ${sourceConfig.startLine}-${sourceConfig.endLine}`);
 
   // For now, output instructions for manual application
@@ -68,7 +73,8 @@ async function applyOptimizedPrompt(promptName: string, optimizedPrompt: string)
   console.log(`   1. Open: ${sourceFile}`);
   console.log(`   2. Find: ${sourceConfig.variable} (around line ${sourceConfig.startLine})`);
   console.log(`   3. Replace with the optimized prompt above`);
-  console.log(`   4. Save and test\n`);
+  console.log(`   4. Test with: npm run test:e2e`);
+  console.log(`   5. Validate improvements in accuracy/completeness\n`);
 }
 
 async function main() {

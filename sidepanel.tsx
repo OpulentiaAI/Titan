@@ -129,6 +129,8 @@ function ChatSidebar() {
   const browserToolsEnabled = true;
   const [showBrowserToolsWarning, setShowBrowserToolsWarning] = useState(true);
   const [isUserScrolled, setIsUserScrolled] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [autoStick, setAutoStick] = useState(true); // keep autoscrolling when near bottom
   const abortControllerRef = useRef<AbortController | null>(null);
   const mcpClientRef = useRef<MCPClient | null>(null);
   const mcpToolsRef = useRef<Record<string, unknown> | null>(null);
@@ -537,6 +539,62 @@ function ChatSidebar() {
       };
     }
   }, []);
+
+  // Smart autoscroll behavior (inspired by Sparka pattern)
+  useEffect(() => {
+    const container = document.querySelector('[data-testid="chat-messages"]') as HTMLElement | null;
+    if (!container) return;
+
+    const THRESHOLD = 96; // px from bottom considered "near bottom"
+
+    const computeNearBottom = () => {
+      const distance = container.scrollHeight - (container.scrollTop + container.clientHeight);
+      const near = distance <= THRESHOLD;
+      setIsNearBottom(near);
+      setIsUserScrolled(!near);
+      // If the user returned near bottom, re-enable autoscroll
+      if (near) setAutoStick(true);
+    };
+
+    const onScroll = () => {
+      // Debounce via rAF for smoothness
+      requestAnimationFrame(computeNearBottom);
+    };
+
+    computeNearBottom();
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Scroll to bottom helper
+  const scrollToBottom = (smooth = true) => {
+    const container = document.querySelector('[data-testid="chat-messages"]') as HTMLElement | null;
+    if (!container) return;
+    const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto';
+    // rAF to avoid layout jank during React commits
+    requestAnimationFrame(() => {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    });
+  };
+
+  // Auto-scroll policy:
+  // - Always scroll when the user sends a message
+  // - Keep autoscrolling if we are near the bottom or autoStick is true
+  // - Do NOT autoscroll if the user scrolled up (isUserScrolled) until they return near bottom
+  useEffect(() => {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    const lastIsUser = last?.role === 'user';
+    const shouldAuto = lastIsUser || (autoStick && isNearBottom && !isUserScrolled);
+    if (shouldAuto) {
+      scrollToBottom(true);
+    }
+  }, [messages?.length]);
+
+  // Expose a way to resume autoscroll if needed from other parts
+  const resumeAutoscrollIfNearBottom = () => {
+    if (isNearBottom) setAutoStick(true);
+  };
 
   const openSettings = () => {
     chrome.runtime.openOptionsPage();
@@ -1740,18 +1798,9 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
 
           // Scroll to bottom to ensure the summary is visible
           setTimeout(() => {
-            const chatContainer = document.querySelector('[data-testid="chat-messages"]');
-            if (chatContainer) {
-              chatContainer.scrollTop = chatContainer.scrollHeight;
-              console.log('📜 [Gateway Computer Use] Scrolled to bottom to show summary');
-            } else {
-              // Fallback: scroll the main conversation area
-              const conversation = document.querySelector('[class*="Conversation"]');
-              if (conversation) {
-                conversation.scrollTop = conversation.scrollHeight;
-                console.log('📜 [Gateway Computer Use] Scrolled conversation to bottom');
-              }
-            }
+            scrollToBottom(true);
+            console.log('📜 [Gateway Computer Use] Scrolled to bottom to show summary');
+            resumeAutoscrollIfNearBottom();
           }, 100);
 
           // Verify message was added

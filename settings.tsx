@@ -21,6 +21,19 @@ const OPENROUTER_MODELS = [
   { id: 'openai/gpt-4o', name: 'GPT-4o', description: '⚡ Optimized for speed and cost' },
   { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', description: '💨 Fast and affordable' },
 
+  // Anthropic family via OpenRouter
+  { id: 'anthropic/claude-opus-4', name: 'Claude Opus 4', description: '🏆 Flagship model - Best coding model with 200K context' },
+  { id: 'anthropic/claude-opus-4.1', name: 'Claude Opus 4.1', description: '🚀 Updated flagship with improved coding and reasoning' },
+  { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', description: '⚡ Balanced performance with 1M context and enhanced coding' },
+  { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', description: '🧠 Most advanced Sonnet for real-world agents and coding' },
+  { id: 'anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5', description: '⚡ Fastest Claude with frontier intelligence and 200K context' },
+  { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet', description: '🧠 Advanced reasoning with hybrid thinking and 200K context' },
+  { id: 'anthropic/claude-3.7-sonnet-thinking', name: 'Claude 3.7 Sonnet (Thinking)', description: '🧠 Enhanced reasoning with step-by-step processing' },
+  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', description: '⚡ Fast and capable with superior performance' },
+  { id: 'anthropic/claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (Oct 2024)', description: '🧠 Latest 3.5 Sonnet with improvements' },
+  { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku', description: '⚡ Fast and efficient Claude model' },
+  { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', description: '🏆 Most capable Claude 3 model' },
+
   // Minimax family
   { id: 'minimax/minimax-m2:free', name: 'Minimax M2 (Free)', description: '🧠 Compact, high-efficiency LLM optimized for coding and agentic workflows' },
 

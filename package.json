@@ -33,7 +33,8 @@
     "test:ogs-streaming:watch": "tsx watch test-realtime-ogs-streaming-e2e.ts",
     "test:ogs-streaming:production": "npm run build && npm run test:ogs-streaming",
     "test:agentic-production": "tsx test-agentic-production-e2e.ts",
-    "test:agentic-production:full": "npm run build && npm run test:agentic-production"
+    "test:agentic-production:full": "npm run build && npm run test:agentic-production",
+    "test:message-utils": "tsx tests/message-utils.test.ts"
   },
   "dependencies": {
     "@ai-sdk-tools/agents": "^1.0.0",

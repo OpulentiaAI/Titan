@@ -1,7 +1,7 @@
 // AI SDK 6 Summarizer - Uses tool/agent calls with You.com Search API
 // Replaces You.com Advanced Agent with more reliable AI SDK implementation
 
-import { generateText, streamText, tool } from 'ai';
+import { generateText, streamText, tool, NoSuchToolError, generateObject } from 'ai';
 import { z } from 'zod';
 
 const LOG_PREFIX = '🤖 [AI-SDK-SUMMARIZER]';
@@ -165,6 +165,19 @@ Provide your analysis following the format specified in the system prompt.`;
           }
           return {} as any;
         },
+        onStepFinish: async ({ toolResults }) => {
+          // Capture search results during streaming to later append as Sources
+          if (toolResults && toolResults.length > 0) {
+            for (const tr of toolResults) {
+              if (tr.toolName === 'searchWeb' && tr.result && Array.isArray((tr.result as any).results)) {
+                const results = (tr.result as any).results as Array<{ title?: string; url?: string; snippet?: string }>;
+                for (const r of results) {
+                  searchResults.push({ title: r.title || '', url: r.url || '', snippet: r.snippet || '' });
+                }
+              }
+            }
+          }
+        },
         experimental_repairToolCall: async ({ toolCall, tools, inputSchema, error }) => {
           if (NoSuchToolError.isInstance(error)) return null;
           try {
@@ -205,10 +218,23 @@ Provide your analysis following the format specified in the system prompt.`;
       }
       
       const duration = Date.now() - startTime;
-      
+
       console.log(`${LOG_PREFIX} ✅ Streaming complete in ${duration}ms`);
       console.log(`${LOG_PREFIX} Text length: ${streamedText.length} chars`);
-      
+      // Append sources if any search results were collected
+      if (searchResults.length > 0) {
+        const sourcesMd = ['\n\n### Sources', ...searchResults.map((r, i) => `- [${r.title || `Source ${i+1}`}](${r.url})`)].join('\n');
+        streamedText += sourcesMd;
+        if (input.updateLastMessage) {
+          input.updateLastMessage((msg: any) => ({
+            ...msg,
+            content: msg.role === 'assistant' 
+              ? `${msg.content || ''}${sourcesMd}`
+              : msg.content
+          }));
+        }
+      }
+
       return {
         summary: streamedText,
         duration,

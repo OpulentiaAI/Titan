@@ -76,6 +76,15 @@ export async function streamingStep(
           streamingDebug.debug('Fallback navigate tool invoked', { url });
           return input.executeTool('navigate', { url });
         },
+        onInputStart: () => {
+          streamingDebug.debug('navigate.onInputStart');
+        },
+        onInputDelta: ({ inputTextDelta }) => {
+          if (inputTextDelta?.trim()) streamingDebug.debug('navigate.onInputDelta', { delta: inputTextDelta.slice(0, 200) });
+        },
+        onInputAvailable: ({ input }) => {
+          streamingDebug.debug('navigate.onInputAvailable', { input });
+        },
       });
     }
 
@@ -89,10 +98,208 @@ export async function streamingStep(
           streamingDebug.debug('Fallback getPageContext tool invoked', { url });
           return input.executeTool('getPageContext', { url: url || 'current_page' });
         },
+        onInputStart: () => {
+          streamingDebug.debug('getPageContext.onInputStart');
+        },
+        onInputDelta: ({ inputTextDelta }) => {
+          if (inputTextDelta?.trim()) streamingDebug.debug('getPageContext.onInputDelta', { delta: inputTextDelta.slice(0, 200) });
+        },
+        onInputAvailable: ({ input }) => {
+          streamingDebug.debug('getPageContext.onInputAvailable', { input });
+        },
+      });
+    }
+
+    // Guarantee core browser tools are always present to avoid capability loss
+    if (!streamingTools.click) {
+      streamingTools.click = tool({
+        description: 'Click an element on the page by selector or coordinates',
+        inputSchema: z.object({
+          selector: z.string().optional(),
+          x: z.number().optional(),
+          y: z.number().optional(),
+        }),
+        execute: async ({ selector, x, y }) => input.executeTool('click', { selector, x, y }),
+        onInputStart: () => streamingDebug.debug('click.onInputStart'),
+        onInputAvailable: ({ input }) => streamingDebug.debug('click.onInputAvailable', { input }),
+      });
+    }
+
+    if (!streamingTools.type) {
+      streamingTools.type = tool({
+        description: 'Type text into the focused element or selector',
+        inputSchema: z.object({
+          selector: z.string().optional(),
+          text: z.string(),
+          submit: z.boolean().optional(),
+        }),
+        execute: async ({ selector, text, submit }) => input.executeTool('type', { selector, text, submit }),
+        onInputStart: () => streamingDebug.debug('type.onInputStart'),
+        onInputAvailable: ({ input }) => streamingDebug.debug('type.onInputAvailable', { input }),
+      });
+    }
+
+    if (!streamingTools.pressKey) {
+      streamingTools.pressKey = tool({
+        description: 'Press a keyboard key (e.g., Enter)',
+        inputSchema: z.object({ key: z.string() }),
+        execute: async ({ key }) => input.executeTool('pressKey', { key }),
+        onInputStart: () => streamingDebug.debug('pressKey.onInputStart'),
+        onInputAvailable: ({ input }) => streamingDebug.debug('pressKey.onInputAvailable', { input }),
+      });
+    }
+
+    if (!streamingTools.scroll) {
+      streamingTools.scroll = tool({
+        description: 'Scroll the page by pixels or to top/bottom',
+        inputSchema: z.object({
+          direction: z.enum(['up', 'down']).optional(),
+          px: z.number().optional(),
+        }),
+        execute: async ({ direction, px }) => input.executeTool('scroll', { direction, px }),
+        onInputStart: () => streamingDebug.debug('scroll.onInputStart'),
+        onInputAvailable: ({ input }) => streamingDebug.debug('scroll.onInputAvailable', { input }),
+      });
+    }
+
+    if (!streamingTools.wait) {
+      streamingTools.wait = tool({
+        description: 'Wait for a number of milliseconds',
+        inputSchema: z.object({ milliseconds: z.number().min(0).default(1000) }),
+        execute: async ({ milliseconds }) => input.executeTool('wait', { milliseconds }),
+        onInputStart: () => streamingDebug.debug('wait.onInputStart'),
+        onInputAvailable: ({ input }) => streamingDebug.debug('wait.onInputAvailable', { input }),
+      });
+    }
+
+    if (!streamingTools.screenshot) {
+      streamingTools.screenshot = tool({
+        description: 'Capture a screenshot of the current page',
+        inputSchema: z.object({}),
+        execute: async () => input.executeTool('screenshot', {}),
+        onInputStart: () => streamingDebug.debug('screenshot.onInputStart'),
+        onInputAvailable: () => streamingDebug.debug('screenshot.onInputAvailable'),
+      });
+    }
+
+    if (!streamingTools.getBrowserHistory) {
+      streamingTools.getBrowserHistory = tool({
+        description: 'Retrieve recent browser history for context',
+        inputSchema: z.object({ limit: z.number().optional() }),
+        execute: async ({ limit }) => input.executeTool('getBrowserHistory', { limit }),
+      });
+    }
+
+    if (!streamingTools.keyCombo) {
+      streamingTools.keyCombo = tool({
+        description: 'Press a combination of keys (e.g., Ctrl+L)',
+        inputSchema: z.object({ combo: z.string() }),
+        execute: async ({ combo }) => input.executeTool('keyCombo', { combo }),
+      });
+    }
+
+    if (!streamingTools.dragDrop) {
+      streamingTools.dragDrop = tool({
+        description: 'Drag an element from one selector to another',
+        inputSchema: z.object({ from: z.string(), to: z.string() }),
+        execute: async ({ from, to }) => input.executeTool('dragDrop', { from, to }),
+      });
+    }
+
+    // Task management and reflection tools inspired by Capy.ai primitives
+    if (!streamingTools.todo) {
+      streamingTools.todo = tool({
+        description: 'Create or update task list with statuses for better orchestration visibility',
+        inputSchema: z.object({
+          tasks: z
+            .array(
+              z.object({
+                id: z.string().min(1),
+                title: z.string().min(1),
+                status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']),
+                description: z.string().optional(),
+              })
+            )
+            .min(1),
+          request_user_approval: z.boolean().optional().default(false),
+        }),
+        execute: async ({ tasks, request_user_approval }) => {
+          // Apply single in_progress rule and merge into last assistant message
+          const normalized = [...tasks];
+          const inProgressCount = normalized.filter(t => t.status === 'in_progress').length;
+          if (inProgressCount > 1) {
+            // Keep the first as in_progress, demote the rest to pending
+            let kept = false;
+            for (const t of normalized) {
+              if (t.status === 'in_progress') {
+                if (!kept) kept = true; else t.status = 'pending';
+              }
+            }
+          }
+
+          input.updateLastMessage((msg) => {
+            if (msg.role !== 'assistant') return msg;
+            const existing = Array.isArray(msg.workflowTasks) ? msg.workflowTasks : [];
+            const byId = new Map(existing.map((t: any) => [t.id, t]));
+            for (const t of normalized) {
+              if (byId.has(t.id)) {
+                const prev = byId.get(t.id);
+                byId.set(t.id, { ...prev, ...t });
+              } else {
+                byId.set(t.id, t);
+              }
+            }
+            const merged = Array.from(byId.values());
+            return {
+              ...msg,
+              workflowTasks: merged,
+              metadata: {
+                ...msg.metadata,
+                requiresApproval: !!request_user_approval,
+                lastTodoUpdate: Date.now(),
+              },
+            } as any;
+          });
+
+          streamingDebug.info('todo tool updated tasks', { count: tasks.length, request_user_approval });
+          return {
+            todo_created: true,
+            tasks_count: tasks.length,
+            requires_approval: !!request_user_approval,
+          };
+        },
+      });
+    }
+
+    if (!streamingTools.message_update) {
+      streamingTools.message_update = tool({
+        description: 'Send a concise live status update to the user (1-5 sentences).',
+        inputSchema: z.object({
+          message: z.string().min(1),
+          status: z.string().min(5).max(80),
+          status_emoji: z.string().min(1).max(4),
+        }),
+        execute: async ({ message, status, status_emoji }) => {
+          input.updateLastMessage((msg) => {
+            if (msg.role !== 'assistant') return msg;
+            const statusLine = `> ${status_emoji} ${status}`;
+            const block = `\n\n${statusLine}\n${message}`;
+            return {
+              ...msg,
+              content: typeof msg.content === 'string' ? (msg.content + block) : block,
+              metadata: { ...msg.metadata, lastStatus: status, lastStatusEmoji: status_emoji, lastStatusAt: Date.now() },
+            } as any;
+          });
+          streamingDebug.info('message_update tool appended status');
+          return { success: true };
+        },
       });
     }
 
     const streamingMessageId = `streaming-${Date.now()}`;
+    streamingDebug.info('Streaming step toolset ready', {
+      toolsAvailable: Object.keys(streamingTools),
+    });
     input.pushMessage({
       id: streamingMessageId,
       role: 'assistant',
@@ -137,32 +344,7 @@ export async function streamingStep(
       return /\b(find|search|news|latest|breaking|what is|who is|tell me about)\b/.test(q);
     };
 
-    // Helper: determine active tools per step to guide the model
-    const computeActiveTools = (stepNumber: number) => {
-      const actions = input.execSteps.map((s) => s.action.split(':')[0]);
-      const lastNavIdx = actions.lastIndexOf('navigate');
-      const hasContextAfterNav = lastNavIdx >= 0 && actions.slice(lastNavIdx + 1).includes('getPageContext');
-      const hasTyped = actions.includes('type_text');
-      const info = isInfoSeeking();
-
-      if (stepNumber === 0 && !hasContextAfterNav) {
-        // Immediately verify state after navigation or at start
-        return ['getPageContext', 'wait'] as const;
-      }
-
-      if (info && !hasTyped) {
-        // Encourage typing search query and submitting
-        return ['type_text', 'press_key', 'getPageContext', 'wait', 'scroll'] as const;
-      }
-
-      if (info && hasTyped && !actions.includes('click')) {
-        // Encourage clicking a result and verifying
-        return ['click', 'getPageContext', 'wait', 'scroll', 'press_key'] as const;
-      }
-
-      // Default: allow main interaction set
-      return ['navigate', 'getPageContext', 'click', 'type_text', 'press_key', 'scroll', 'wait'] as const;
-    };
+    // We no longer restrict activeTools. All base tools remain available every step.
 
     const stream = streamText({
       model: input.model,
@@ -176,19 +358,15 @@ export async function streamingStep(
         infoSeeking: isInfoSeeking(),
         lastActions: input.execSteps.map((s) => s.action),
       },
-      prepareStep: async ({ stepNumber, steps, messages }) => {
-        const active = computeActiveTools(stepNumber);
-        // Force first step verification if needed
+      prepareStep: async ({ stepNumber }) => {
+        // Only guide the first step to verify context; do not restrict tool availability
         const actions = input.execSteps.map((s) => s.action.split(':')[0]);
         const lastNavIdx = actions.lastIndexOf('navigate');
         const hasContextAfterNav = lastNavIdx >= 0 && actions.slice(lastNavIdx + 1).includes('getPageContext');
         if (stepNumber === 0 && !hasContextAfterNav) {
-          return {
-            toolChoice: { type: 'tool', toolName: 'getPageContext' },
-            activeTools: Array.from(active),
-          } as any;
+          return { toolChoice: { type: 'tool', toolName: 'getPageContext' } } as any;
         }
-        return { activeTools: Array.from(active) } as any;
+        return {} as any;
       },
       experimental_repairToolCall: async ({ toolCall, tools, inputSchema, error, messages, system }) => {
         // Do not attempt to fix unknown tool names

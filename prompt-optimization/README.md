@@ -102,7 +102,8 @@ The pipeline targets these system prompts:
 |------|-------|-----------|-------------|
 | `planner.ts` | 124-168 | Planning Agent | Creates step-by-step execution plans with validation strategies |
 | `evaluator.ts` | 59-61 | Search Evaluator | Evaluates search result completeness |
-| `workflows/browser-automation-workflow.legacy.ts` | 118-220 | Browser Automation | Enhanced browser automation with advanced reasoning |
+| `workflows/browser-automation-workflow.legacy.ts` | 1234-1399 | Browser Automation (Legacy) | Production-tested browser automation with advanced reasoning |
+| `workflows/browser-automation-workflow-enhanced.ts` | 339-440 | Browser Automation (Enhanced) | Experimental workflow with evaluation loop and approval flow |
 | `sidepanel.tsx` | 645-678 | Gemini Computer Use | Gemini-based computer control |
 
 ## 📚 Optimized Prompt Libraries

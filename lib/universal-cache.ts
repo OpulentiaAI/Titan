@@ -1,7 +1,8 @@
 // Universal Cache for Tools - AI SDK v6
 // Implements TTL-based caching with LRU eviction for expensive operations
 
-import { createHash } from 'crypto';
+// Note: Avoid Node 'crypto' in browser builds. Use a lightweight sync hash.
+// We combine two classic string hashes (djb2 + sdbm) to produce a 16-hex id.
 
 /**
  * Cache entry with metadata
@@ -269,7 +270,19 @@ export function generateCacheKey(
     }, {} as Record<string, any>);
 
   const payload = JSON.stringify({ toolName, args: sortedArgs, salt });
-  return createHash('sha256').update(payload).digest('hex').substring(0, 16);
+  // djb2
+  let h1 = 5381 >>> 0;
+  for (let i = 0; i < payload.length; i++) {
+    h1 = (((h1 << 5) + h1) ^ payload.charCodeAt(i)) >>> 0;
+  }
+  // sdbm
+  let h2 = 0 >>> 0;
+  for (let i = 0; i < payload.length; i++) {
+    const c = payload.charCodeAt(i);
+    h2 = (c + ((h2 << 6) >>> 0) + ((h2 << 16) >>> 0) - h2) >>> 0;
+  }
+  const hex = (n: number) => ('00000000' + n.toString(16)).slice(-8);
+  return (hex(h1) + hex(h2)).substring(0, 16);
 }
 
 /**

@@ -7,7 +7,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-tap-highlight-color: transparent;
@@ -133,7 +133,7 @@ body {
   border: 1.5px solid #d9d9e3;
   border-radius: 8px;
   font-size: 14px;
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Courier, monospace;
+  font-family: var(--font-mono), 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Courier, monospace;
   transition: all 0.15s ease;
   background: #ffffff;
   color: #343541;
@@ -191,7 +191,7 @@ body {
 }
 
 .save-button {
-  font-family: sans-serif;
+  font-family: var(--font-sans), sans-serif;
   font-size: 12px;
   width: 100%;
   padding: 12px;

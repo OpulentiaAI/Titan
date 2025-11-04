@@ -58,11 +58,11 @@ export const chatStyles = {
   container: "relative flex h-screen w-full flex-col overflow-hidden bg-secondary",
   
   // Message styles
-  userMessage: "group-[.is-user]:rounded-[24px] group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground",
+  userMessage: "group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground",
   assistantMessage: "group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0 group-[.is-assistant]:text-foreground",
   
   // Prompt input styles
-  promptInput: "divide-y-0 rounded-[28px]",
+  promptInput: "divide-y-0 rounded-xl",
   promptTextarea: "px-5 md:text-base",
   promptFooter: "p-2.5",
   

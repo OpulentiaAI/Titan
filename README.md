@@ -8,6 +8,23 @@
 
 ---
 
+## Contents
+
+- [Providers](#providers)
+- [Quick Start](#-quick-start-5-minutes)
+
+## Providers
+
+Opulent Browser supports multiple language and search providers. To get started quickly:
+
+- OpenAI — https://platform.openai.com/api/keys
+- You.com (web search) — https://api.you.com
+- Google AI (Gemini) — https://ai.google.dev
+- NVIDIA NIM — https://build.nvidia.com/nim
+- OpenRouter — https://openrouter.ai/
+
+Configure these in Settings within the extension. You can use any subset depending on your workflow.
+
 ## 🎯 For All Stakeholders
 
 ### 👥 **Customers & End Users**

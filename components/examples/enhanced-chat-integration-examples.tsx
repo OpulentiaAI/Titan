@@ -39,7 +39,7 @@ export function CustomChatMessage() {
       {/* User message with enhanced styling */}
       <div className="flex justify-end">
         <div className="max-w-[80%]">
-          <div className="group rounded-[24px] rounded-br-sm border bg-background px-4 py-3 text-foreground">
+          <div className="group rounded-xl rounded-br-sm border bg-background px-4 py-3 text-foreground">
             <p>Hello! How can I help you today?</p>
           </div>
         </div>
@@ -78,7 +78,7 @@ export function EnhancedPromptInputExample() {
   
   return (
     <div className="w-full max-w-2xl mx-auto p-4">
-      <form className="w-full overflow-hidden rounded-xl border bg-muted shadow-xs divide-y-0 rounded-[28px]">
+      <form className="w-full overflow-hidden rounded-xl border bg-muted shadow-xs divide-y-0">
         {/* Textarea with enhanced styling */}
         <textarea
           className="w-full resize-none rounded-none border-none p-3 shadow-none outline-hidden ring-0 px-5 md:text-base bg-transparent"
@@ -175,7 +175,7 @@ export function BranchedConversationExample() {
                         {versions.map((version) => (
                           <div key={version.id} className="group flex w-full items-end justify-end gap-2 py-4">
                             <div className="flex flex-col gap-2 text-sm">
-                              <div className={`flex flex-col gap-2 text-sm group-[.is-user]:rounded-[24px] group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0 group-[.is-assistant]:text-foreground`}>
+                              <div className={`flex flex-col gap-2 text-sm group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0 group-[.is-assistant]:text-foreground`}>
                                 <p>{version.content}</p>
                               </div>
                             </div>

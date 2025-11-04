@@ -1158,8 +1158,8 @@ export async function browserAutomationWorkflow(
       getPageContext: tool({
         description: 'Get current page context (title, text, links, forms, viewport). Use this to understand page state before actions.',
         parameters: z.object({
-          // Bedrock/Anthropic compatibility: empty objects need at least one optional field
-          _placeholder: z.string().optional().describe('Placeholder for Bedrock schema compatibility - not used')
+          // Provider schema compatibility: empty objects often require at least one optional field
+          _placeholder: z.string().optional().describe('Placeholder for schema compatibility - not used')
         }),
         execute: async () => {
           const toolStartTime = Date.now();

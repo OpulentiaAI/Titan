@@ -30,7 +30,7 @@ export const MessageContent = ({
   <div
     className={cn(
       "flex flex-col gap-2 text-sm",
-      "group-[.is-user]:rounded-[24px] group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground group-[.is-user]:px-4 group-[.is-user]:py-3",
+      "group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground group-[.is-user]:px-4 group-[.is-user]:py-3",
       "group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0 group-[.is-assistant]:text-foreground",
       "transition-all duration-200",
       className

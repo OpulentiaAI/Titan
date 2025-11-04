@@ -58,6 +58,7 @@ import {
 } from './components/ui/structured-output';
 import { Button } from './components/ui/button';
 import { Send } from 'lucide-react';
+import { useStickToBottomContext } from 'use-stick-to-bottom';
 import {
   PageContextArtifact,
   SummarizationArtifact,
@@ -130,9 +131,7 @@ function ChatSidebar() {
   // Browser tools are always enabled - hardcoded
   const browserToolsEnabled = true;
   const [showBrowserToolsWarning, setShowBrowserToolsWarning] = useState(true);
-  const [isUserScrolled, setIsUserScrolled] = useState(false);
-  const [isNearBottom, setIsNearBottom] = useState(true);
-  const [autoStick, setAutoStick] = useState(true); // keep autoscrolling when near bottom
+  // Autoscroll handled via StickToBottom context (see AutoStickWatcher below)
   const abortControllerRef = useRef<AbortController | null>(null);
   const mcpClientRef = useRef<MCPClient | null>(null);
   const mcpToolsRef = useRef<Record<string, unknown> | null>(null);
@@ -542,60 +541,15 @@ function ChatSidebar() {
     }
   }, []);
 
-  // Smart autoscroll behavior (inspired by Sparka pattern)
-  useEffect(() => {
-    const container = document.querySelector('[data-testid="chat-messages"]') as HTMLElement | null;
-    if (!container) return;
-
-    const THRESHOLD = 96; // px from bottom considered "near bottom"
-
-    const computeNearBottom = () => {
-      const distance = container.scrollHeight - (container.scrollTop + container.clientHeight);
-      const near = distance <= THRESHOLD;
-      setIsNearBottom(near);
-      setIsUserScrolled(!near);
-      // If the user returned near bottom, re-enable autoscroll
-      if (near) setAutoStick(true);
-    };
-
-    const onScroll = () => {
-      // Debounce via rAF for smoothness
-      requestAnimationFrame(computeNearBottom);
-    };
-
-    computeNearBottom();
-    container.addEventListener('scroll', onScroll, { passive: true });
-    return () => container.removeEventListener('scroll', onScroll);
-  }, []);
-
-  // Scroll to bottom helper
-  const scrollToBottom = (smooth = true) => {
-    const container = document.querySelector('[data-testid="chat-messages"]') as HTMLElement | null;
-    if (!container) return;
-    const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto';
-    // rAF to avoid layout jank during React commits
-    requestAnimationFrame(() => {
-      container.scrollTo({ top: container.scrollHeight, behavior });
-    });
-  };
-
-  // Auto-scroll policy:
-  // - Always scroll when the user sends a message
-  // - Keep autoscrolling if we are near the bottom or autoStick is true
-  // - Do NOT autoscroll if the user scrolled up (isUserScrolled) until they return near bottom
-  useEffect(() => {
-    if (!Array.isArray(messages) || messages.length === 0) return;
-    const last = messages[messages.length - 1];
-    const lastIsUser = last?.role === 'user';
-    const shouldAuto = lastIsUser || (autoStick && isNearBottom && !isUserScrolled);
-    if (shouldAuto) {
-      scrollToBottom(true);
-    }
-  }, [messages?.length]);
-
-  // Expose a way to resume autoscroll if needed from other parts
-  const resumeAutoscrollIfNearBottom = () => {
-    if (isNearBottom) setAutoStick(true);
+  // AutoStickWatcher renders inside the StickToBottom context
+  const AutoStickWatcher = ({ count, lastRole }: { count: number; lastRole?: string }) => {
+    const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+    useEffect(() => {
+      if (lastRole === 'user' || isAtBottom) {
+        scrollToBottom();
+      }
+    }, [count]);
+    return null;
   };
 
   const openSettings = () => {
@@ -2018,7 +1972,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
     const newMessages = [...messages, userMessage];
     pushMessage(userMessage);
     setIsLoading(true);
-    setIsUserScrolled(false); // Reset scroll state when user sends message
+    // Autoscroll handled by AutoStickWatcher
 
     abortControllerRef.current = new AbortController();
 
@@ -2099,7 +2053,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
     };
 
     return (
-      <div className="mt-3 rounded-lg border border-border bg-card p-3 space-y-2">
+      <div className="mt-2 rounded-lg border border-border bg-card p-2 space-y-2">
         <div className="text-sm font-medium text-foreground">Follow-Ups</div>
         {inputs.map((q, idx) => {
           const inputId = `${messageId}-fu-${idx}`;
@@ -2213,6 +2167,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         <div className="flex-1 overflow-hidden">
           <Conversation className="h-full">
             <ConversationContent className="h-full" data-testid="chat-messages">
+              <AutoStickWatcher count={(Array.isArray(messages) ? messages : []).length} lastRole={(Array.isArray(messages) && messages.length > 0) ? messages[messages.length - 1].role : undefined} />
               {(!Array.isArray(messages) || messages.length === 0) ? (
                 <div className="flex h-full items-center justify-center">
                   <div className="welcome-message text-center">
@@ -2255,13 +2210,13 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                     return (
                       <div
                         key={message.id}
-                        className="mx-auto w-full max-w-4xl animate-in fade-in slide-in-from-bottom-1 duration-200 py-4"
+                        className="mx-auto w-full max-w-4xl animate-in fade-in slide-in-from-bottom-1 duration-200 py-2"
                       >
                         <Message from={message.role as "user" | "assistant"}>
                           <MessageContent
                             className={cn(
                               message.role === 'user' 
-                                ? "rounded-[24px] rounded-br-sm border bg-background text-foreground"
+                                ? "rounded-xl rounded-br-sm border bg-background text-foreground"
                                 : "bg-transparent text-foreground"
                             )}
                           >
@@ -2272,7 +2227,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                                   <>
                                     {/* Display tool executions using enhanced structured component */}
                                     {message.toolExecutions && message.toolExecutions.length > 0 && (
-                                      <div style={{ marginBottom: '12px' }}>
+                                      <div style={{ marginBottom: '8px' }}>
                                         <EnhancedToolCallDisplay 
                                           toolParts={message.toolExecutions.map(exec => ({
                                             type: exec.toolName,
@@ -2301,7 +2256,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                                     
                                     {/* Display reasoning tokens (OpenRouter/Atlas chain-of-thought) - AI Elements primitive */}
                                     {message.reasoning && message.reasoning.length > 0 && (
-                                      <div style={{ marginBottom: '12px' }}>
+                                      <div style={{ marginBottom: '8px' }}>
                                         <Reasoning 
                                           isStreaming={isLoading && index === messages.length - 1}
                                           defaultOpen={false}
@@ -2329,7 +2284,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                                     
                                     {/* Display planning using enhanced structured component */}
                                     {message.planning && (
-                                      <div style={{ marginBottom: '12px' }}>
+                                      <div style={{ marginBottom: '8px' }}>
                                         <EnhancedPlanDisplay 
                                           plan={message.planning.plan}
                                           confidence={message.planning.confidence}
@@ -2340,21 +2295,21 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                                     
                                     {/* Display page context artifact */}
                                     {message.pageContext && (
-                                      <div style={{ marginBottom: '12px' }}>
+                                      <div style={{ marginBottom: '8px' }}>
                                         <PageContextArtifact pageContext={message.pageContext} />
                                       </div>
                                     )}
                                     
                                     {/* Display summarization artifact */}
                                     {message.summarization && (
-                                      <div style={{ marginBottom: '12px' }}>
+                                      <div style={{ marginBottom: '8px' }}>
                                         <SummarizationArtifact summarization={message.summarization} />
                                       </div>
                                     )}
 
                                     {/* Render Follow-Ups as clickable buttons (basic UI) */}
                                     {message?.metadata?.hasFollowUps && message?.metadata?.followUps?.select && (
-                                      <div className="mt-3 rounded-lg border border-border bg-card p-3">
+                                      <div className="mt-2 rounded-lg border border-border bg-card p-2">
                                         <div className="mb-2 text-sm font-medium text-foreground">Follow-Ups</div>
                                         <div className="flex flex-wrap gap-2">
                                           {message.metadata.followUps.select.map((opt: any, idx: number) => (

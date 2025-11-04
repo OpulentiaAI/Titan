@@ -519,7 +519,7 @@ export function EnhancedChainOfThoughtChatExample() {
                               !message.reasoning) && (
                               <MessageContent
                                 className={cn(
-                                  "group-[.is-user]:rounded-[24px] group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground",
+                                  "group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:bg-background group-[.is-user]:text-foreground",
                                   "group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0 group-[.is-assistant]:text-foreground"
                                 )}
                               >
@@ -548,7 +548,7 @@ export function EnhancedChainOfThoughtChatExample() {
           <div className="mx-auto max-w-4xl">
             <div className="grid gap-4">
               <PromptInput
-                className="divide-y-0 rounded-[28px]"
+                className="divide-y-0 rounded-xl"
                 onSubmit={handleSubmit}
               >
                 <PromptInputTextarea

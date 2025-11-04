@@ -111,6 +111,32 @@ export async function streamingStep(
     }
 
     // Guarantee core browser tools are always present to avoid capability loss
+    // Helpers for post-action verification and coordinate normalization
+    const clampCoords = async (x?: number, y?: number) => {
+      if (typeof x !== 'number' || typeof y !== 'number') return { x, y };
+      try {
+        const ctx = await input.executeTool('getPageContext', { url: 'current_page' });
+        const width = ctx?.viewport?.width ?? 1280;
+        const height = ctx?.viewport?.height ?? 720;
+        const cx = Math.max(0, Math.min(Math.round(x), width - 1));
+        const cy = Math.max(0, Math.min(Math.round(y), height - 1));
+        return { x: cx, y: cy };
+      } catch {
+        return { x: Math.round(x), y: Math.round(y) };
+      }
+    };
+
+    const verifyAfter = async (delayMs = 250) => {
+      try {
+        if (delayMs > 0) await input.executeTool('wait', { milliseconds: delayMs });
+      } catch {}
+      try {
+        return await input.executeTool('getPageContext', { url: 'current_page' });
+      } catch (e) {
+        return undefined;
+      }
+    };
+
     if (!streamingTools.click) {
       streamingTools.click = tool({
         description: 'Click an element on the page by selector or coordinates',
@@ -119,7 +145,12 @@ export async function streamingStep(
           x: z.number().optional(),
           y: z.number().optional(),
         }),
-        execute: async ({ selector, x, y }) => input.executeTool('click', { selector, x, y }),
+        execute: async ({ selector, x, y }) => {
+          const coords = await clampCoords(x, y);
+          const res = await input.executeTool('click', { selector, x: coords.x, y: coords.y });
+          const page = await verifyAfter(300);
+          return { success: res?.success !== false, url: page?.url, pageContext: page };
+        },
         onInputStart: () => streamingDebug.debug('click.onInputStart'),
         onInputAvailable: ({ input }) => streamingDebug.debug('click.onInputAvailable', { input }),
       });
@@ -133,7 +164,24 @@ export async function streamingStep(
           text: z.string(),
           submit: z.boolean().optional(),
         }),
-        execute: async ({ selector, text, submit }) => input.executeTool('type', { selector, text, submit }),
+        execute: async ({ selector, text, submit }) => {
+          // Chunk long typing for stability
+          const CHUNK = 120;
+          if (text && text.length > CHUNK) {
+            let idx = 0;
+            while (idx < text.length) {
+              const part = text.slice(idx, idx + CHUNK);
+              await input.executeTool('type', { selector, text: part });
+              await input.executeTool('wait', { milliseconds: 80 });
+              idx += CHUNK;
+            }
+            if (submit) await input.executeTool('pressKey', { key: 'Enter' });
+          } else {
+            await input.executeTool('type', { selector, text, submit });
+          }
+          const page = await verifyAfter(300);
+          return { success: true, url: page?.url, pageContext: page };
+        },
         onInputStart: () => streamingDebug.debug('type.onInputStart'),
         onInputAvailable: ({ input }) => streamingDebug.debug('type.onInputAvailable', { input }),
       });
@@ -143,7 +191,11 @@ export async function streamingStep(
       streamingTools.pressKey = tool({
         description: 'Press a keyboard key (e.g., Enter)',
         inputSchema: z.object({ key: z.string() }),
-        execute: async ({ key }) => input.executeTool('pressKey', { key }),
+        execute: async ({ key }) => {
+          await input.executeTool('pressKey', { key });
+          const page = await verifyAfter(250);
+          return { success: true, url: page?.url, pageContext: page };
+        },
         onInputStart: () => streamingDebug.debug('pressKey.onInputStart'),
         onInputAvailable: ({ input }) => streamingDebug.debug('pressKey.onInputAvailable', { input }),
       });
@@ -156,7 +208,11 @@ export async function streamingStep(
           direction: z.enum(['up', 'down']).optional(),
           px: z.number().optional(),
         }),
-        execute: async ({ direction, px }) => input.executeTool('scroll', { direction, px }),
+        execute: async ({ direction, px }) => {
+          await input.executeTool('scroll', { direction, px });
+          const page = await verifyAfter(200);
+          return { success: true, url: page?.url, pageContext: page };
+        },
         onInputStart: () => streamingDebug.debug('scroll.onInputStart'),
         onInputAvailable: ({ input }) => streamingDebug.debug('scroll.onInputAvailable', { input }),
       });
@@ -166,7 +222,11 @@ export async function streamingStep(
       streamingTools.wait = tool({
         description: 'Wait for a number of milliseconds',
         inputSchema: z.object({ milliseconds: z.number().min(0).default(1000) }),
-        execute: async ({ milliseconds }) => input.executeTool('wait', { milliseconds }),
+        execute: async ({ milliseconds }) => {
+          await input.executeTool('wait', { milliseconds });
+          const page = await verifyAfter(0);
+          return { success: true, url: page?.url, pageContext: page };
+        },
         onInputStart: () => streamingDebug.debug('wait.onInputStart'),
         onInputAvailable: ({ input }) => streamingDebug.debug('wait.onInputAvailable', { input }),
       });
@@ -296,6 +356,79 @@ export async function streamingStep(
       });
     }
 
+    if (!streamingTools.follow_ups) {
+      streamingTools.follow_ups = tool({
+        description: 'Present end-of-run options or inputs to the user. Renders markdown section with options.',
+        inputSchema: z.object({
+          attachment: z.string().optional(),
+          follow_ups_input: z
+            .array(
+              z.object({
+                type: z.enum(['text', 'number', 'date']),
+                question: z.string(),
+                placeholder: z.union([z.string(), z.number()]).optional(),
+                suggestions: z.array(z.string()).optional(),
+              })
+            )
+            .optional(),
+          follow_ups_select: z
+            .array(
+              z.object({
+                emoji: z.string().min(1).max(2),
+                title: z.string().min(3).max(60),
+                prompt: z.string().min(3),
+              })
+            )
+            .optional(),
+        }).refine((v) => !v.follow_ups_input || !v.follow_ups_select, {
+          message: 'Provide either follow_ups_input or follow_ups_select, not both',
+          path: ['follow_ups_input'],
+        }),
+        execute: async ({ attachment, follow_ups_input, follow_ups_select }) => {
+          input.updateLastMessage((msg) => {
+            if (msg.role !== 'assistant') return msg;
+            const lines: string[] = [];
+            lines.push('', '---', '### Follow-Ups');
+            if (attachment) {
+              lines.push(`Attachment: ${attachment}`);
+            }
+            if (Array.isArray(follow_ups_select) && follow_ups_select.length >= 2) {
+              lines.push('Please choose one of the options below:');
+              for (const opt of follow_ups_select) {
+                lines.push(`- ${opt.emoji} **${opt.title}** — ${opt.prompt}`);
+              }
+            } else if (Array.isArray(follow_ups_input) && follow_ups_input.length >= 2) {
+              lines.push('Please provide the following information:');
+              for (const q of follow_ups_input) {
+                const ph = q.placeholder !== undefined ? ` (placeholder: ${q.placeholder})` : '';
+                const sg = q.suggestions && q.suggestions.length ? ` Suggestions: ${q.suggestions.join(', ')}` : '';
+                lines.push(`- (${q.type}) ${q.question}${ph}${sg}`);
+              }
+            } else {
+              lines.push('No follow-ups provided.');
+            }
+
+            return {
+              ...msg,
+              content: typeof msg.content === 'string' ? (msg.content + '\n' + lines.join('\n')) : lines.join('\n'),
+              metadata: { 
+                ...msg.metadata, 
+                hasFollowUps: true, 
+                followUpsAt: Date.now(),
+                followUps: {
+                  attachment,
+                  select: follow_ups_select,
+                  input: follow_ups_input,
+                }
+              },
+            } as any;
+          });
+          streamingDebug.info('follow_ups tool rendered options');
+          return { success: true };
+        },
+      });
+    }
+
     const streamingMessageId = `streaming-${Date.now()}`;
     streamingDebug.info('Streaming step toolset ready', {
       toolsAvailable: Object.keys(streamingTools),
@@ -359,6 +492,12 @@ export async function streamingStep(
         lastActions: input.execSteps.map((s) => s.action),
       },
       prepareStep: async ({ stepNumber }) => {
+        // Lightweight health check: ensure tab/page is reachable between steps
+        try {
+          await input.executeTool('getPageContext', { url: 'current_page' });
+        } catch (e) {
+          streamingDebug.warn('Health check failed: getPageContext unreachable');
+        }
         // Only guide the first step to verify context; do not restrict tool availability
         const actions = input.execSteps.map((s) => s.action.split(':')[0]);
         const lastNavIdx = actions.lastIndexOf('navigate');

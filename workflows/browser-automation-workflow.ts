@@ -305,8 +305,8 @@ export async function browserAutomationWorkflow(
      has_initial_context: !!input.initialContext,
    });
   
-  // Determine if using Anthropic model (needed for error handling)
-  // Optimized model selection based on OpenRouter rankings:
+  // Determine model family (for provider-specific error handling)
+  // Optimized model selection (generic):
   // - google/gemini-2.5-flash-lite: #1 in images (34.3% market share) - best for browser automation
   // - google/gemini-2.5-flash: #3 in images (6.8%) - fast and efficient fallback
   // - Preview versions kept as fallback for compatibility
@@ -396,21 +396,21 @@ export async function browserAutomationWorkflow(
     const hasYouApiKey = !!(input.settings.youApiKey && input.userQuery);
     
     if (hasYouApiKey) {
-      workflowDebug.info('🌐 Web search enabled - using You.com for pre-execution research', {
+      workflowDebug.info('🌐 Web search enabled for pre-execution research', {
         queryLength: input.userQuery.length,
-        youApiKeyLength: input.settings.youApiKey?.length || 0,
+        apiKeyLength: input.settings.youApiKey?.length || 0,
       });
-      console.log('🌐 [WORKFLOW] Web search & agentic reasoning ENABLED via You.com API');
+      console.log('🌐 [WORKFLOW] Web search & agentic reasoning ENABLED');
     } else {
-      workflowDebug.warn('⚠️  Web search disabled - no You.com API key provided', {
-        recommendation: 'Add You.com API key to settings for enhanced web search capabilities',
+      workflowDebug.warn('⚠️  Web search disabled - no API key provided', {
+        recommendation: 'Add a web search API key to settings for enhanced search capabilities',
       });
-      console.log('⚠️  [WORKFLOW] Web search disabled - no You.com API key (execution will continue without search enhancement)');
+      console.log('⚠️  [WORKFLOW] Web search disabled (execution will continue without search enhancement)');
     }
     
     const preSearchPromise = hasYouApiKey
       ? useStep('pre-search', async () => {
-          console.log('🔍 [PRE-SEARCH] Starting You.com deep search for query:', input.userQuery.substring(0, 100));
+          console.log('🔍 [PRE-SEARCH] Starting deep web search for query:', input.userQuery.substring(0, 100));
           const { traced } = await import('../lib/braintrust');
           const { runDeepSearch } = await import('../deepsearch');
           
@@ -1587,7 +1587,7 @@ export async function browserAutomationWorkflow(
         const hasProps = Object.keys(shape).length;
         const isBedrockSafe = hasProps > 0 || !isAnthropicModel;
         if (isAnthropicModel && hasProps === 0) {
-          console.warn(`   ⚠️ ${toolName}: Empty schema detected - WILL FAIL with Bedrock/Anthropic`);
+          console.warn(`   ⚠️ ${toolName}: Empty schema detected - provider-specific constraints may apply`);
         }
       } catch (e) {
         console.warn(`   - ${toolName}: schema validation failed:`, e);
@@ -1744,6 +1744,21 @@ export async function browserAutomationWorkflow(
       '- press_key(key)',
       '- scroll(direction|selector, amount?)',
       '- wait(seconds)',
+      '- todo(tasks, request_user_approval?)',
+      '- message_update(message, status, status_emoji)',
+      '- follow_ups(attachment?, follow_ups_input? | follow_ups_select?)',
+      '',
+      '• todo — Maintain a visible task list and enforce one in_progress task',
+      '  Recommended: create/update tasks at phase boundaries and when status changes',
+      '  Best Practices: keep 4–6 discrete tasks; set exactly one to in_progress; mark completed immediately; set request_user_approval=true for risky steps',
+      '',
+      '• message_update — Provide concise status updates during long operations',
+      '  Recommended: at key milestones (planning complete, navigation retries, extraction done)',
+      '  Best Practices: 1–5 sentences; include status (5–15 words) and a single emoji',
+      '',
+      '• follow_ups — Present end-of-run options or questions',
+      '  Recommended: at the end of execution to offer clear next actions or gather inputs',
+      '  Best Practices: include 2–4 options (follow_ups_select) OR ≥2 questions (follow_ups_input); attach deliverables when relevant',
       '',
       'TOOL DETAILS',
       '• getPageContext — View current page content/state',
@@ -2223,7 +2238,7 @@ export async function browserAutomationWorkflow(
 
         if (!hasYouApiKey) {
           diagnosticsLines.push(
-            '_Web search summarization is disabled (You.com API key not configured)._',
+            '_Web search summarization is disabled (API key not configured)._',
             ''
           );
         }
@@ -2268,9 +2283,9 @@ export async function browserAutomationWorkflow(
     let summarization: SummarizationStepOutput | undefined;
       console.log('📊 [SUMMARIZATION] Using AI SDK 6 with agentic reasoning for result analysis');
       if (hasYouApiKey) {
-        console.log('🌐 [SUMMARIZATION] Web search ENABLED - will use You.com for enhanced context');
+        console.log('🌐 [SUMMARIZATION] Web search ENABLED - using provider for enhanced context');
       } else {
-        console.log('💡 [SUMMARIZATION] Running without web search (add You.com API key for enhanced analysis)');
+        console.log('💡 [SUMMARIZATION] Running without web search (add a web search API key for enhanced analysis)');
       }
      
        workflowDebug.info('Starting summarization phase', {
@@ -2287,7 +2302,7 @@ export async function browserAutomationWorkflow(
          use_ai_sdk: true,
          use_web_search: hasYouApiKey,
        });
-      // Always attempt summarization - use You.com if available, fallback to main AI model
+      // Always attempt summarization - use web search if available, fallback to main AI model
       try {
         const objective = context.messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
         const trajectory = execSteps.slice(-50).map(s => 
@@ -2357,7 +2372,7 @@ export async function browserAutomationWorkflow(
           trajectory,
           outcome,
           youApiKey: input.settings.youApiKey || '', // Use empty string if not available - fallback will handle it
-          // Provide fallback model and API key for when You.com fails
+          // Provide fallback model and API key for when web search fails
           fallbackModel: model || createOpenAI({ apiKey: input.settings.apiKey })('gpt-4o-mini'),
           fallbackApiKey: input.settings.apiKey,
           // Enable streaming for real-time UI updates

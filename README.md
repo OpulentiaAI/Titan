@@ -131,9 +131,11 @@ Removed experimental tests including specialized integrations, diagnostic tools,
 - **Google Chrome** - Latest version recommended
 
 **Optional but Recommended:**
-- **OpenAI API key** - For advanced AI reasoning ([Get here](https://platform.openai.com/api/keys))
-- **You.com API key** - For research-grade web search ([Get here](https://api.you.com))
-- **Google Gemini API key** - For specialized computer use tasks ([Get here](https://ai.google.dev))
+- OpenAI API key — advanced LLM reasoning ([Get here](https://platform.openai.com/api/keys))
+- You.com API key — research-grade web search ([Get here](https://api.you.com))
+- Google AI (Gemini) API key — computer use / multimodal ([Get here](https://ai.google.dev))
+- NVIDIA NIM API key — OpenAI-compatible inference ([Get here](https://build.nvidia.com/nim))
+- OpenRouter API key — multi-provider routing ([Get here](https://openrouter.ai/))
 
 ### Installation
 
@@ -159,9 +161,11 @@ npm run build
 
 1. **Open Settings** - Click the Atlas icon → Settings (gear icon)
 2. **Add your API keys**:
-   - **OpenAI**: Get from [OpenAI Platform](https://platform.openai.com/api/keys) (starts with `sk-`)
-   - **You.com**: Get from [You.com API](https://api.you.com)
-   - **Google Gemini** (optional): Get from [Google AI](https://ai.google.dev)
+   - OpenAI: https://platform.openai.com/api/keys
+   - You.com: https://api.you.com
+   - Google AI (Gemini): https://ai.google.dev
+   - NVIDIA NIM: https://build.nvidia.com/nim
+   - OpenRouter: https://openrouter.ai/
 3. **Save settings** - Keys are stored locally; never sent elsewhere
 
 ### Your First Research Task
@@ -178,6 +182,19 @@ npm run build
 ---
 
 ## 🏗️ Technical Architecture
+
+### Citations
+
+This project draws inspiration from prior art and open-source examples in the computer-use space. Key references include:
+
+- OSS computer-use server and examples:
+  - https://github.com/Scrapybara/scrapybara-oss
+  - https://github.com/Scrapybara/scrapybara-cookbook/tree/main/computer-use-playground
+- Documentation:
+  - https://docs.scrapybara.com/browser
+  - https://docs.scrapybara.com/cursor-rules
+
+The concepts we adapted include post-action verification, viewport normalization, typing stability via small delays, and step health checks.
 
 ### Multi-Agent System Design
 

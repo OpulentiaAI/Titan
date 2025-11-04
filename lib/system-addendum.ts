@@ -30,7 +30,7 @@ export const systemAddendum: SystemAddendum = {
 
   environment: `
 - Runtime: Opulent Browser Extension (in-page, event-driven). No direct local filesystem. Use tools for effects.
-- Providers: AI Gateway (Gemini 2.5 family), OpenRouter/NIM (optional), You.com Search (optional).
+- Providers: multiple LLMs and optional web search backends.
 - State: Page context is ephemeral; always verify with getPageContext().
 - Security: Treat secrets and user data carefully; do not echo tokens/keys.
 `,

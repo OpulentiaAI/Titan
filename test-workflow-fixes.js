@@ -30,7 +30,7 @@ ${mockExecSteps.slice(-10).map(s => `- **Step ${s.step}**: ${s.action}${s.url ? 
 2. **Refine approach**: Adjust strategy based on execution results
 3. **Add monitoring**: Consider adding error handling for similar tasks
 
-*Note: Advanced AI-powered summary not available (You.com API key not configured).*`;
+*Note: Advanced AI-powered summary not available (web search API key not configured).*`;
 
   console.log('Generated fallback summary:');
   console.log(fallbackSummary.substring(0, 200) + '...\n');
@@ -43,7 +43,7 @@ Execution finished successfully with ${mockExecSteps.length} step(s).
 
 **Final URL**: ${mockExecSteps[mockExecSteps.length - 1]?.url || 'N/A'}
 
-*Note: Detailed summary not available (You.com API key not configured).*`;
+*Note: Detailed summary not available (web search API key not configured).*`;
 
   console.log('Generated completion message:');
   console.log(completionMessage + '\n');

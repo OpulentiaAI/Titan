@@ -1,4 +1,4 @@
-// Simplified DeepSearch agent using You.com Search API (v1)
+// Simplified DeepSearch agent using a web search API (v1)
 // Provides rapid web + news search to seed Browser Tools exploration
 // Search Operators: https://documentation.you.com/developer-resources/search-operators
 
@@ -29,7 +29,7 @@ class YouSearchClient {
   }
 
   /**
-   * Unified search with support for You.com search operators
+   * Unified search with support for advanced search operators
    * Search Operators: https://documentation.you.com/developer-resources/search-operators
    * 
    * Example operators:
@@ -84,7 +84,7 @@ class YouSearchClient {
   }
 
   /**
-   * Parse You.com API errors
+   * Parse web search API errors
    * Based on: https://documentation.you.com/developer-resources/errors
    */
   private async parseError(response: Response, text: string): Promise<{ message: string; code?: string }> {

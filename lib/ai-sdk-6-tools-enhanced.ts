@@ -558,7 +558,7 @@ export async function executeBrowserTask(params: {
 You are a browser automation agent. Use the tool contract to complete the task reliably and fully.
 
 TOOLS
-- navigate, getPageContext, click, type_text, press_key, scroll, wait
+- navigate, getPageContext, click, type_text, press_key, scroll, wait, todo, message_update, follow_ups
 
 RULES
 1) After navigation, verify state via getPageContext before interacting
@@ -580,6 +580,9 @@ Current URL: ${params.currentUrl || 'about:blank'}`;
     '• press_key — Enter/Tab/Escape; use key_combination for combos; verify effect',
     '• scroll — up/down/top/bottom or element selector; trigger lazy loads; verify new content',
     '• wait — short; always followed by verification',
+    '• todo — maintain a task list (4–6 items), enforce one in_progress, update on progress or phase changes, request_user_approval for risky steps',
+    '• message_update — append concise status (1–5 sentences) with a single emoji for milestones',
+    '• follow_ups — at end-of-run, present 2–4 options or ≥2 questions; attach deliverables if relevant',
   ].join('\n');
 
   const systemPrompt = [baseSystemPrompt, toolDetails, renderAddendum('ADDENDUM')].join('\n\n');

@@ -1,6 +1,6 @@
 // AI SDK 6 Agent Enhancements
 // Advanced configurations for ToolLoopAgent with production-ready features
-// Integrated with Braintrust for comprehensive observability
+// Integrated observability hooks for comprehensive telemetry
 
 import type { StopCondition } from 'ai';
 import type { Message } from '../types';
@@ -287,7 +287,7 @@ export function createToolPhaseManager(phases: ToolPhase[]) {
 }
 
 /**
- * Performance Monitoring with Braintrust Integration
+ * Performance Monitoring (observability)
  * Track and optimize agent performance with detailed observability
  */
 
@@ -299,7 +299,7 @@ export class AgentPerformanceMonitor {
   recordStepTime(duration: number) {
     this.stepTimes.push(duration);
     
-    // Log to Braintrust every 5 steps
+    // Log every 5 steps
     if (this.stepTimes.length % 5 === 0) {
       logEvent('performance_checkpoint', {
         step_count: this.stepTimes.length,
@@ -316,7 +316,7 @@ export class AgentPerformanceMonitor {
     }
     this.toolTimes.get(toolName)!.push(duration);
     
-    // Log slow tool executions (>2s) to Braintrust
+    // Log slow tool executions (>2s)
     if (duration > 2000) {
       logEvent('slow_tool_execution', {
         tool_name: toolName,
@@ -354,7 +354,7 @@ export class AgentPerformanceMonitor {
       })),
     };
     
-    // Log final summary to Braintrust
+    // Log final summary
     logEvent('performance_summary', summary);
     
     return summary;
@@ -462,7 +462,7 @@ export interface AgentEnhancementConfig {
 export function createEnhancedAgentConfig(config: AgentEnhancementConfig) {
   const stopConditions: Array<StopCondition<any>> = [];
   
-  // Log enhancement configuration to Braintrust
+  // Log enhancement configuration for observability
   logEvent('agent_enhancements_configured', {
     features: {
       dynamic_models: !!config.dynamicModels,

@@ -91,7 +91,7 @@ export async function summarizationStep(
   // ============================================
   if (useAiSdkToolCalls && input.fallbackModel && input.fallbackApiKey) {
     try {
-      console.log('🤖 [SUMMARIZATION] Using AI SDK 6 with tool calls (feature flag enabled)');
+      console.log('🤖 [SUMMARIZATION] Using AI SDK with tool calls (feature flag enabled)');
       
       const { summarizeWithAiSdk } = await import('../lib/ai-sdk-summarizer');
       
@@ -328,7 +328,7 @@ export async function summarizationStep(
       const duration = Date.now() - startTime;
       const stepCount = (input.trajectory.match(/step \d+/g) || []).length;
 
-      console.log('🔍 [SUMMARIZATION] You.com API successful:', {
+      console.log('🔍 [SUMMARIZATION] Web search API successful:', {
         usedAgentsApi,
         duration,
         summaryLength: summary.length,
@@ -349,7 +349,7 @@ export async function summarizationStep(
     } catch (error: any) {
       // Fall through to fallback logic below
       const errorMsg = error?.message || String(error);
-      console.error('❌ [SUMMARIZATION] You.com API failed:', errorMsg);
+      console.error('❌ [SUMMARIZATION] Web search API failed:', errorMsg);
       console.error('❌ [SUMMARIZATION] Error type:', error?.name || typeof error);
       
       summarizerDebug.error('You.com summarization failed', {
@@ -361,7 +361,7 @@ export async function summarizationStep(
       });
       
       if (errorMsg.includes('401') || errorMsg.includes('Invalid or expired API key')) {
-        console.error('❌ [SUMMARIZATION] Authentication error - check You.com API key');
+        console.error('❌ [SUMMARIZATION] Authentication error - check web search API key');
       } else if (errorMsg.includes('403') || errorMsg.includes('Forbidden')) {
         console.error('❌ [SUMMARIZATION] Forbidden - check API key permissions');
       } else if (errorMsg.includes('timed out')) {

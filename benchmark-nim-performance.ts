@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * Benchmark DeepSeek-R1 (NIM) vs Google Gemini for coding/agentic tasks
+ * Benchmark multiple providers for coding/agentic tasks (generic, provider-agnostic logs)
  */
 
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
@@ -49,10 +49,10 @@ async function benchmarkProviders() {
   // Setup providers
   const providers = [];
 
-  // NIM DeepSeek-R1
+  // Provider A
   if (process.env.NIM_API_KEY) {
     providers.push({
-      name: 'NVIDIA NIM',
+      name: 'Provider A',
       model: 'deepseek-ai/deepseek-r1',
       client: createOpenAICompatible({
         name: 'nim',
@@ -62,24 +62,24 @@ async function benchmarkProviders() {
     });
   }
 
-  // Google Gemini
+  // Provider B
   if (process.env.AI_GATEWAY_API_KEY) {
     const googleAI = createGoogleGenerativeAI({
       apiKey: process.env.AI_GATEWAY_API_KEY
     });
     providers.push({
-      name: 'Google Gemini',
+      name: 'Provider B',
       model: 'gemini-2.5-pro-latest',
       client: googleAI('gemini-2.5-pro-latest')
     });
   }
 
-  // OpenRouter MiniMax-M2
+  // Provider C
   if (process.env.OPENROUTER_API_KEY) {
     const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
     const openrouterClient = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
     providers.push({
-      name: 'OpenRouter MiniMax-M2',
+      name: 'Provider C',
       model: 'minimax/minimax-m2',
       client: openrouterClient('minimax/minimax-m2')
     });

@@ -70,10 +70,10 @@ export async function generateExecutionPlan(
       model = client(opts.model || 'google:gemini-2.5-flash');
       console.log('✅ [Planner] AI Gateway client created successfully');
     } else if (opts.provider === 'nim') {
-      console.log('🔑 [Planner] Creating NVIDIA NIM client...');
+      console.log('🔑 [Planner] Creating provider client...');
       const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
       if (!opts.apiKey) {
-        throw new Error('NVIDIA NIM API key is required for planning');
+        throw new Error('Provider API key is required for planning');
       }
       const client = createOpenAICompatible({
         name: 'nim',
@@ -83,16 +83,16 @@ export async function generateExecutionPlan(
         },
       });
       model = client.chatModel(opts.model || 'deepseek-ai/deepseek-r1');
-      console.log('✅ [Planner] NVIDIA NIM client created successfully');
+      console.log('✅ [Planner] Provider client created successfully');
     } else if (opts.provider === 'openrouter') {
-      console.log('🔑 [Planner] Creating OpenRouter client...');
+      console.log('🔑 [Planner] Creating gateway client...');
       const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
       if (!opts.apiKey) {
-        throw new Error('OpenRouter API key is required for planning');
+        throw new Error('Gateway API key is required for planning');
       }
       const client = createOpenRouter({ apiKey: opts.apiKey });
       model = client(opts.model || 'minimax/minimax-m2');
-      console.log('✅ [Planner] OpenRouter client created successfully');
+      console.log('✅ [Planner] Gateway client created successfully');
     } else {
       console.log('🔑 [Planner] Creating Google Generative AI client...');
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
@@ -164,6 +164,9 @@ TOOLS (use exact action names)
 - wait — pause (target: seconds or selector)
 - getPageContext — read current page info (target: 'current_page' or section)
 - press_key — press a key (Enter/Tab/Escape)
+- todo — maintain a visible task list
+- message_update — append concise progress updates
+- follow_ups — present end-of-run options or questions
 
 TOOL DETAILS (planning hints)
 • getPageContext — Plan it immediately after navigate and after state changes to verify; use it to discover selectors and confirm success
@@ -173,6 +176,11 @@ TOOL DETAILS (planning hints)
 • press_key — Use standard keys or key_combination for combos; verify result
 • scroll — Use direction/top/bottom or a target selector; plan incremental discovery and verification
 • wait — Minimal durations; always followed by verification
+
+TASK + STATUS TOOLS (planning hints)
+• todo — Create an initial 4–6 item plan (pending); mark one as in_progress when execution starts; mark completed as tasks finish; request_user_approval for risky steps
+• message_update — Add milestone updates at planning completion, after navigation, after extraction, and before summary
+• follow_ups — At the final step, present 2–4 options or ≥2 questions for next actions, optionally attaching deliverables
 
 CRITICAL RULES
 1) Use only the listed actions exactly as named (no waitForElement/getContext variants).

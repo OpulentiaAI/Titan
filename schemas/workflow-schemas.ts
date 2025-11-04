@@ -191,7 +191,7 @@ export type BrowserAutomationWorkflowOutput = z.infer<typeof BrowserAutomationWo
 
 /**
  * Workflow Telemetry Schema
- * For Braintrust and observability logging
+ * For observability logging
  */
 export const WorkflowTelemetrySchema = z.object({
   workflowId: z.string(),

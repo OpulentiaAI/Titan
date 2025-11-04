@@ -62,6 +62,7 @@ export interface AgentPromptComposerProps {
   maxHeight?: number;
   className?: string;
   onSettingsClick?: () => void;
+  modelSelector?: React.ReactNode;
 }
 
 const AgentPromptComposerComponent = ({
@@ -79,6 +80,7 @@ const AgentPromptComposerComponent = ({
   maxHeight = 100,
   className,
   onSettingsClick,
+  modelSelector,
 }: AgentPromptComposerProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -306,6 +308,13 @@ const AgentPromptComposerComponent = ({
             }}
             aria-label="Prompt input"
           />
+
+          {/* Model Selector - Bottom Left */}
+          {modelSelector && (
+            <div className="absolute bottom-2 left-2">
+              {modelSelector}
+            </div>
+          )}
 
           {/* Action Buttons - ChatGPT-style */}
           <div className="flex items-center justify-end pb-2 pr-2">

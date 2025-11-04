@@ -56,6 +56,8 @@ import {
   JSONDisplay,
   StructuredOutput 
 } from './components/ui/structured-output';
+import { Button } from './components/ui/button';
+import { Send } from 'lucide-react';
 import {
   PageContextArtifact,
   SummarizationArtifact,
@@ -449,7 +451,7 @@ function ChatSidebar() {
           migratedSettings.provider === 'google'; // Also migrate old Google Direct API users
 
         if (needsMigration) {
-          console.log('🔄 [Migration] Updating to Google Gemini via AI Gateway');
+          console.log('🔄 [Migration] Updating to default model via gateway');
           console.log('   Old model:', migratedSettings.model);
           migratedSettings = {
             ...migratedSettings,
@@ -463,13 +465,13 @@ function ChatSidebar() {
           chrome.storage.local.set({ atlasSettings: migratedSettings });
         }
 
-        console.log('🔑 Loaded settings:', JSON.stringify({
-          provider: migratedSettings.provider,
-          model: migratedSettings.model,
-          hasApiKey: !!migratedSettings.apiKey,
-          apiKeyLength: migratedSettings.apiKey?.length,
-          apiKeyPrefix: migratedSettings.apiKey?.substring(0, 10) + '...'
-        }, null, 2));
+          console.log('🔑 Loaded settings:', JSON.stringify({
+            provider: migratedSettings.provider,
+            model: migratedSettings.model,
+            hasApiKey: !!migratedSettings.apiKey,
+            apiKeyLength: migratedSettings.apiKey?.length,
+            apiKeyPrefix: migratedSettings.apiKey?.substring(0, 10) + '...'
+          }, null, 2));
         setSettings(migratedSettings);
 
         // Initialize Braintrust if API key is provided
@@ -2024,7 +2026,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
       // Browser tools are now MANDATORY - no more conditional checks
       // Auto-detect based on provider selection
       const engine = getComputerUseEngine();
-      console.log('🔧 [handleSubmit] Browser tools MANDATORY - using engine', { provider: settings.provider, engine, hasApiKey: !!settings.apiKey, model: settings.model });
+          console.log('🔧 [handleSubmit] Browser tools MANDATORY - using engine', { provider: settings.provider, engine, hasApiKey: !!settings.apiKey, model: settings.model });
 
       // Gateway/OpenRouter providers use AI Gateway
       if (settings.provider === 'gateway' || settings.provider === 'openrouter') {
@@ -2069,6 +2071,70 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         }
         setIsLoading(false);
       }
+  };
+
+  // Handle follow-up option click
+  const handleFollowUpOptionClick = async (prompt: string) => {
+    try {
+      await handleComposerSubmit(prompt);
+    } catch (e) {
+      console.error('Failed to submit follow-up option:', e);
+    }
+  };
+
+  // Render a small form for input-style follow-ups
+  const FollowUpsInputForm = ({ messageId, inputs }: { messageId: string; inputs: Array<{ type: string; question: string; placeholder?: string | number; suggestions?: string[] }> }) => {
+    const [answers, setAnswers] = useState<Record<number, string | number>>({});
+
+    const handleChange = (idx: number, value: string) => {
+      setAnswers((prev) => ({ ...prev, [idx]: value }));
+    };
+
+    const handleSubmitInputs = async () => {
+      const compiled = inputs
+        .map((q, idx) => `- ${q.question}: ${answers[idx] ?? ''}`)
+        .join('\n');
+      const prompt = `Follow-up answers for previous step:\n${compiled}`;
+      await handleComposerSubmit(prompt);
+    };
+
+    return (
+      <div className="mt-3 rounded-lg border border-border bg-card p-3 space-y-2">
+        <div className="text-sm font-medium text-foreground">Follow-Ups</div>
+        {inputs.map((q, idx) => {
+          const inputId = `${messageId}-fu-${idx}`;
+          const dataListId = `${messageId}-fu-dl-${idx}`;
+          const type = q.type === 'number' ? 'number' : q.type === 'date' ? 'date' : 'text';
+          return (
+            <div key={inputId} className="flex items-center gap-2">
+              <label htmlFor={inputId} className="min-w-36 text-xs text-muted-foreground">
+                {q.question}
+              </label>
+              <input
+                id={inputId}
+                type={type}
+                list={q.suggestions && q.suggestions.length ? dataListId : undefined}
+                placeholder={q.placeholder !== undefined ? String(q.placeholder) : ''}
+                className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+                onChange={(e) => handleChange(idx, e.target.value)}
+              />
+              {q.suggestions && q.suggestions.length > 0 && (
+                <datalist id={dataListId}>
+                  {q.suggestions.map((s, i) => (
+                    <option key={`${dataListId}-${i}`} value={s} />
+                  ))}
+                </datalist>
+              )}
+            </div>
+          );
+        })}
+        <div className="pt-1">
+          <Button size="sm" variant="secondary" onClick={handleSubmitInputs}>
+            <Send className="h-3 w-3 opacity-75 mr-1" /> Submit
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   // Auto-scroll behavior handled by use-stick-to-bottom via Conversation wrapper.
@@ -2285,6 +2351,32 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                                         <SummarizationArtifact summarization={message.summarization} />
                                       </div>
                                     )}
+
+                                    {/* Render Follow-Ups as clickable buttons (basic UI) */}
+                                    {message?.metadata?.hasFollowUps && message?.metadata?.followUps?.select && (
+                                      <div className="mt-3 rounded-lg border border-border bg-card p-3">
+                                        <div className="mb-2 text-sm font-medium text-foreground">Follow-Ups</div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {message.metadata.followUps.select.map((opt: any, idx: number) => (
+                                            <Button
+                                              key={`${message.id}-fu-${idx}`}
+                                              size="sm"
+                                              variant="secondary"
+                                              onClick={() => handleFollowUpOptionClick(opt.prompt)}
+                                              title={opt.prompt}
+                                            >
+                                              <span className="mr-1">{opt.emoji}</span>
+                                              {opt.title}
+                                              <Send className="ml-2 h-3 w-3 opacity-75" />
+                                            </Button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {message?.metadata?.hasFollowUps && message?.metadata?.followUps?.input && (
+                                      <FollowUpsInputForm messageId={message.id} inputs={message.metadata.followUps.input} />
+                                    )}
                                     
                                     {/* Display error analysis artifact */}
                                     {message.errorAnalysis && (
@@ -2380,8 +2472,13 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
             {/* Fixed input form structure */}
             <div className="input-form backdrop-blur-sm">
               <div className="mx-auto max-w-4xl w-full">
-                <div className="flex items-center justify-end pb-2 px-1">
-                  {settings && (
+                <AgentComposerIntegration
+                  onSubmit={handleComposerSubmit}
+                  isLoading={isLoading}
+                  disabled={!settings?.apiKey}
+                  showSettings={true}
+                  onSettingsClick={() => setShowSettings(true)}
+                  modelSelector={settings && (
                     <ModelMorphDropdown
                       provider={settings.provider}
                       value={settings.model}
@@ -2398,13 +2495,6 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                       }}
                     />
                   )}
-                </div>
-                <AgentComposerIntegration
-                  onSubmit={handleComposerSubmit}
-                  isLoading={isLoading}
-                  disabled={!settings?.apiKey}
-                  showSettings={true}
-                  onSettingsClick={() => setShowSettings(true)}
                 />
               </div>
             </div>

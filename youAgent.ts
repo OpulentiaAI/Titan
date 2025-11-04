@@ -1,4 +1,4 @@
-// You.com Advanced Agent (Beta) client with streaming support
+// Agents API client with streaming support
 // Based on: https://documentation.you.com/developer-resources/tutorials/advanced-agent/stream-response
 
 export interface YouAdvancedAgentOptions {
@@ -29,7 +29,7 @@ export interface YouAdvancedAgentResponse {
 }
 
 /**
- * Run You.com Advanced Agent with streaming support
+ * Run hosted agents with streaming support
  * Based on: https://documentation.you.com/developer-resources/tutorials/advanced-agent/stream-response
  */
 export async function runYouAdvancedAgentStream(
@@ -151,7 +151,7 @@ export async function runYouAdvancedAgentStream(
 }
 
 /**
- * Run You.com Advanced Agent (non-streaming, backward compatible)
+ * Run hosted agents (non-streaming, backward compatible)
  */
 export async function runYouAdvancedAgentSummary(
   apiToken: string,
@@ -192,7 +192,7 @@ export async function runYouAdvancedAgentSummary(
 }
 
 /**
- * Simple You.com search-based summarization (fallback when agents API is not available)
+ * Simple web search-based summarization (fallback when agents API is not available)
  * Uses the basic search API instead of the agents endpoint
  */
 export async function runYouSearchSummary(
@@ -212,7 +212,7 @@ export async function runYouSearchSummary(
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    const error = new Error(`You.com search failed: ${response.status} ${response.statusText} ${text}`);
+    const error = new Error(`Web search failed: ${response.status} ${response.statusText} ${text}`);
     throw error;
   }
 
@@ -233,7 +233,7 @@ export async function runYouSearchSummary(
 }
 
 /**
- * Parse You.com API errors
+ * Parse web search API errors
  * Based on: https://documentation.you.com/developer-resources/errors
  */
 async function parseYouApiError(response: Response, text: string): Promise<{ message: string; code?: string }> {

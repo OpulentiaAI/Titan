@@ -84,10 +84,17 @@ async function main() {
   
   console.log(`✅ Best prompts extracted to: ${outputFile}`);
   console.log('\n💡 Next: Apply these prompts to source files:');
-  console.log('   - planner.ts (line 124)');
-  console.log('   - evaluator.ts (line 49)');
-  console.log('   - workflows/browser-automation-workflow.ts (line 665)');
-  console.log('   - sidepanel.tsx (line 645)');
+  console.log('   - planner.ts (line 124-168) - Planning agent with validation strategies');
+  console.log('   - evaluator.ts (line 59-61) - Search result evaluation');
+  console.log('   - workflows/browser-automation-workflow.legacy.ts (line 118-220) - Enhanced browser automation');
+  console.log('   - sidepanel.tsx (line 645-678) - Gemini computer use');
+  console.log('\n📊 Enhanced with:');
+  console.log('   ✓ State-aware execution (no state assumptions)');
+  console.log('   ✓ Three-phase validation pattern (Gather → Execute → Verify)');
+  console.log('   ✓ Multi-level verification with cross-checks');
+  console.log('   ✓ Graceful degradation & error recovery');
+  console.log('   ✓ Security & data separation principles');
+  console.log('   ✓ Tool boundary verification (no hallucination)');
 }
 
 main().catch(console.error);

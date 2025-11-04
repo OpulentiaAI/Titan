@@ -28,7 +28,12 @@
     "optimize:arbor-gepa": "npx tsx prompt-optimization/examples/example-hybrid-workflow.ts",
     "optimize:samples": "echo 'Create my-tools.ts first - see QUICKSTART.md' && exit 1",
     "optimize:gepa-only": "echo 'Create gepa-only.ts first - see QUICKSTART.md' && exit 1",
-    "test:navigation:dist": "node tests/navigation.dist.test.js"
+    "test:navigation:dist": "node tests/navigation.dist.test.js",
+    "test:ogs-streaming": "tsx test-realtime-ogs-streaming-e2e.ts",
+    "test:ogs-streaming:watch": "tsx watch test-realtime-ogs-streaming-e2e.ts",
+    "test:ogs-streaming:production": "npm run build && npm run test:ogs-streaming",
+    "test:agentic-production": "tsx test-agentic-production-e2e.ts",
+    "test:agentic-production:full": "npm run build && npm run test:agentic-production"
   },
   "dependencies": {
     "@ai-sdk-tools/agents": "^1.0.0",

@@ -106,6 +106,14 @@ const extractUrlFromQuery = (query: string): string | null => {
   return null;
 };
 
+// Heuristic: information-seeking query classifier (kept generic and site-agnostic)
+const isInfoQuery = (query: string) => {
+  if (!query) return false;
+  const q = query.toLowerCase();
+  return /^(tell me about|who is|what is)\b/.test(q) ||
+         /\b(search for|find (info|information) about)\b/.test(q);
+};
+
 const normalizePlanSteps = (originalSteps: PlanStep[], query: string): PlanStep[] => {
   const clonedSteps = originalSteps.map((step) => ({ ...step }));
   const containsNavigate = clonedSteps.some((step) => step.action === 'navigate');
@@ -121,6 +129,8 @@ const normalizePlanSteps = (originalSteps: PlanStep[], query: string): PlanStep[
       validationCriteria: 'URL matches target and page title is present',
     });
   }
+
+  // Do not inject site-specific steps here; leave site selection and search flow to the agent plan.
 
   const needsPageContext = !clonedSteps.some((step) => step.action === 'getPageContext');
   if (needsPageContext) {
@@ -301,7 +311,7 @@ export async function browserAutomationWorkflow(
   // - google/gemini-2.5-flash: #3 in images (6.8%) - fast and efficient fallback
   // - Preview versions kept as fallback for compatibility
   const modelName = input.settings.model || (input.settings.provider === 'gateway' 
-    ? 'google/gemini-2.5-flash-lite'  // Optimized: #1 ranked for images/tool calls
+    ? 'google/gemini-2.5-flash'  // Optimized default for browser automation
     : 'gemini-2.5-pro');
   const isAnthropicModel = modelName.includes('anthropic') || modelName.includes('claude');
   
@@ -664,6 +674,12 @@ export async function browserAutomationWorkflow(
             extractedParams = `seconds: ${waitTime}`;
             break;
 
+          case 'press_key':
+            // Key press (e.g., Enter, Tab, Escape)
+            const keyName = (step.target || 'Enter').replace(/[^A-Za-z]/g, '') || 'Enter';
+            extractedParams = `key: "${keyName}"`;
+            break;
+
           default:
             extractedParams = `target: "${step.target || 'N/A'}"`;
         }
@@ -674,7 +690,7 @@ export async function browserAutomationWorkflow(
       const executionInstructionMessage = {
         id: `execution-instructions-${Date.now()}`,
         role: 'user' as const,
-        content: `${EXECUTION_PROMPT_MARKER}\n\n**EXECUTION PLAN:**\n${enhancedPlanStepLines.join('\n')}\n\n**INSTRUCTIONS:**\nExecute each step in sequence. Use the provided tools to complete the task. After each tool call, verify the action was successful. If any step fails, attempt recovery or provide detailed error information.\n\n**TOOLS AVAILABLE:**\n- navigate: Go to a URL\n- click: Click on elements\n- type_text: Enter text into inputs\n- scroll: Scroll the page\n- wait: Wait for page updates\n- getPageContext: Get current page information\n\n**VERIFICATION:** After completing all steps, provide a summary of what was accomplished.`,
+        content: `${EXECUTION_PROMPT_MARKER}\n\n**EXECUTION PLAN:**\n${enhancedPlanStepLines.join('\n')}\n\n**INSTRUCTIONS:**\n- Execute each step in sequence. After each tool call, verify success with getPageContext() when relevant.\n- Do NOT stop after navigation. Continue until you've gathered the requested information and produced a natural-language answer.\n- For information-seeking queries (e.g., "tell me about X"), follow this pattern unless a direct URL is provided:\n  1) navigate("https://www.google.com")\n  2) type_text(selector: "input[name='q']", text: "<query>")\n  3) press_key(key: "Enter")\n  4) wait(seconds: 2)\n  5) getPageContext() to verify results\n  6) click(selector: "#search a h3") to open a result\n  7) getPageContext() and extract key facts for the answer\n- If a step fails, apply a targeted fallback (e.g., adjust selector), or explicitly report the failure cause.\n\n**TOOLS AVAILABLE:**\n- navigate: Go to a URL\n- click: Click on elements\n- type_text: Enter text into inputs\n- press_key: Press a key like Enter/Tab/Escape\n- scroll: Scroll the page\n- wait: Wait for page updates\n- getPageContext: Get current page information\n\n**VERIFICATION:** When the objective requires an answer, do not finish until you have opened at least one relevant source page and synthesized a concise answer from its content. Then provide a short, readable summary.`,
       };
 
       agentMessages.push(executionInstructionMessage);
@@ -692,7 +708,9 @@ export async function browserAutomationWorkflow(
 // ============================================
     console.log('🏠 [WORKFLOW] Starting PHASE 2: Page Context Step');
     let pageContext: PageContextStepOutput | undefined;
-    if (!input.initialContext?.pageContext) {
+    const initialUrl = input.initialContext?.currentUrl || '';
+    const isRestrictedOrBlank = !initialUrl || /^(chrome|edge|about):/i.test(initialUrl);
+    if (!input.initialContext?.pageContext && !isRestrictedOrBlank) {
       console.log('📄 [WORKFLOW] No initial page context provided, gathering page context');
       logStepProgress('browser_automation_workflow', 2, {
         phase: 'page_context',
@@ -1539,16 +1557,16 @@ export async function browserAutomationWorkflow(
       '   - If ANY parameter is missing/unclear: **STOP and ASK THE USER**',
       '   - **NEVER use placeholders, assumptions, or guesses**',
       '',
-      '2. **Tool Selection Rules**',
-      '   - **navigate_to**: Use ONLY for opening URLs (requires explicit URL)',
-      '   - **click**: Use for clicking elements (requires selector from page context)',
-      '   - **type_text**: Use for text input (requires selector + text content)',
-      '   - **extract_data**: Use for retrieving page information',
+       '2. **Tool Selection Rules**',
+       '   - **navigate**: Use ONLY for opening URLs (requires explicit URL)',
+       '   - **click**: Use for clicking elements (requires selector from page context)',
+       '   - **type_text**: Use for text input (requires selector + text content)',
+       '   - **getPageContext**: Use for retrieving page information',
       '   - Verify the tool matches your EXACT current need',
       '   - Confirm you have the correct **selector format** (CSS/XPath from actual page)',
       '',
       '3. **Selector Validation** (CRITICAL - addressing low tool_accuracy)',
-      '   - Selectors must come from ACTUAL page content (use extract_data first if needed)',
+       '   - Selectors must come from ACTUAL page content (use getPageContext first if needed)',
       '   - Valid formats: CSS selectors (`.class`, `#id`, `tag[attr="value"]`) or XPath',
       '   - **NEVER invent selectors** - if you don\'t see the element, extract page structure first',
       '   - Test logic: "Can I see this exact selector in the page context? Yes → proceed, No → extract first"',
@@ -1652,6 +1670,71 @@ export async function browserAutomationWorkflow(
       systemLines.splice(systemLines.indexOf('WORKFLOW:') - 1, 0, '', 'ADDITIONAL CONTEXT:', preSearchBlock, '');
     }
     
+    // Strengthen with Atlas-style guidance
+    systemLines.unshift(
+      'ROLE',
+      'You are a browser automation agent. Execute the objective using the tool contract reliably and completely.',
+      '',
+      'ENVIRONMENT',
+      '- Generic browser runtime exposed via tools; you must verify page state through getPageContext().',
+      '- Think silently; do not reveal chain-of-thought. Output only natural-language updates and call tools.',
+      '',
+      'TOOLS (exact names)',
+      '- navigate(url)',
+      '- getPageContext()',
+      '- click(selector|x,y)',
+      '- type_text(text, selector?, press_enter?)',
+      '- press_key(key)',
+      '- scroll(direction|selector, amount?)',
+      '- wait(seconds)',
+      '',
+      'EXECUTION LOOP',
+      '- [ANALYZE] Read the instruction and current context',
+      '- [PLAN] Select the next atomic action with explicit parameters',
+      '- [ACT] Call the tool',
+      '- [VERIFY] Confirm effect with getPageContext() or strict criteria',
+      '- [ADAPT] If failed, change approach; do not repeat the same failing call',
+      '- Continue until the user’s objective is satisfied',
+      '',
+      'PARAMETER VERIFICATION (before any tool call)',
+      '- List ALL required parameters for the chosen tool',
+      '- Extract each from user query, page context, or prior results',
+      '- If ANY parameter is missing/unclear: STOP and ask the user to clarify',
+      '- NEVER use placeholders or guessed values',
+      '',
+      'TOOL SELECTION RULES',
+      '- navigate: open a URL (requires explicit URL)',
+      '- click: interact with elements (requires a selector or coordinates)',
+      '- type_text: input text (requires selector + text; optional press_enter)',
+      '- getPageContext: read the current page state (use to verify or discover selectors)',
+      '- scroll: move page/element viewport (direction or selector + amount)',
+      '- wait: small delays when necessary (seconds)',
+      '',
+      'SELECTOR VALIDATION (critical)',
+      '- Selectors must come from ACTUAL page content (use getPageContext first if needed)',
+      '- Prefer stable CSS selectors (role/label/attributes) over brittle coordinates',
+      '- NEVER invent selectors; if not visible in context, extract first',
+      '',
+      'MULTI-STEP TASKS',
+      '- Break into sequential steps with verification after each state change',
+      '- For navigation paths: navigate/click → getPageContext → choose next link/element → repeat',
+      '',
+      'VERIFICATION',
+      '- Every state-changing action must be followed by verification prior to proceeding.',
+      '- Prefer semantic signals (URL change, visible elements, content present).',
+      '',
+      'SAFETY & NON-DISCLOSURE',
+      '- Do not output internal reasoning. Be concise and factual.',
+      '- Do not hallucinate page content; rely on verified context only.',
+    );
+
+    // Attach global system addendum (communication, policies, best practices)
+    try {
+      const { renderAddendum } = await import('../lib/system-addendum');
+      const addendum = renderAddendum('ADDENDUM');
+      systemLines.push('', addendum, '');
+    } catch (_) {}
+
     const system = systemLines.filter(Boolean).join('\n');
     
     // Messages are already initialized earlier in the workflow (line ~143)
@@ -1738,6 +1821,7 @@ export async function browserAutomationWorkflow(
       execSteps,
       updateLastMessage: context.updateLastMessage,
       pushMessage: context.pushMessage,
+      executeTool: context.executeTool,
       abortSignal: context.abortSignal,
     });
     console.log('🎯 [WORKFLOW] STREAMING STEP COMPLETED');
@@ -1758,6 +1842,52 @@ export async function browserAutomationWorkflow(
       execSteps.length = 0; // Clear the array
       execSteps.push(...streaming.executionSteps);
       console.log('📋 [WORKFLOW] execSteps updated:', execSteps.map(s => ({ step: s.step, action: s.action, success: s.success })));
+    }
+
+    // If the agent stopped after only navigating on an information query, re-run agent with
+    // a continuation message that enforces a general, site-agnostic completion pattern.
+    try {
+      const executedActions = new Set(execSteps.map(s => s.action.split(':')[0]));
+      const infoQuery = isInfoQuery(input.userQuery);
+      const onlyNavigated = execSteps.length <= 2 && executedActions.size <= 2 && executedActions.has('navigate');
+
+      if (infoQuery && onlyNavigated) {
+        console.log('🧭 [WORKFLOW] Continuation enforcement activated (agent re-run)');
+        const continuationMessage = {
+          id: `continue-${Date.now()}`,
+          role: 'user' as const,
+          content: [
+            '[CONTINUE_EXECUTION]',
+            '',
+            'You must continue execution to complete the objective:',
+            '- Perform additional tool calls to gather information (e.g., type_text into a search field or use in-page navigation).',
+            '- After each state-changing action, verify state with getPageContext().',
+            '- Do not finish until you have opened at least one relevant content page and captured its context.',
+            '- Then synthesize a concise, factual answer from the captured content.',
+          ].join('\n'),
+        };
+
+        const agentMessages2 = [...agentMessages, continuationMessage];
+        const streaming2 = await streamingStep({
+          model,
+          system,
+          tools: tools as any,
+          messages: agentMessages2,
+          execSteps,
+          updateLastMessage: context.updateLastMessage,
+          pushMessage: context.pushMessage,
+          executeTool: context.executeTool,
+          abortSignal: context.abortSignal,
+        });
+
+        if (streaming2?.executionSteps && streaming2.executionSteps.length > 0) {
+          execSteps.length = 0;
+          execSteps.push(...streaming2.executionSteps);
+          console.log('📋 [WORKFLOW] execSteps updated after continuation:', execSteps.map(s => ({ step: s.step, action: s.action, success: s.success })));
+        }
+      }
+    } catch (continuationError) {
+      console.warn('⚠️ [WORKFLOW] Agent continuation re-run failed', continuationError);
     }
 
 // ============================================
@@ -2009,7 +2139,12 @@ export async function browserAutomationWorkflow(
         const trajectory = execSteps.slice(-50).map(s => 
           `- step ${s.step}: ${s.action}${s.url ? ` @ ${s.url}` : ''} ${s.success ? '(ok)' : '(failed)'}`
         ).join('\n') || '- (no actions executed)';
-        const outcome = streaming.fullText?.substring(0, 1500) || '';
+        // Use execution trajectory as outcome since streaming may not capture full results
+        const outcome = execSteps.length > 0
+          ? execSteps.map(step =>
+              `Step ${step.step}: ${step.action}${step.url ? ` → ${step.url}` : ''} (${step.success ? 'SUCCESS' : 'FAILED'})`
+            ).join('\n')
+          : (streaming.fullText?.substring(0, 1500) || '');
       
         workflowDebug.debug('Summarization inputs prepared', {
           objectiveLength: objective.length,
@@ -2122,6 +2257,7 @@ export async function browserAutomationWorkflow(
             summary: `## Summary\n\n✅ **Execution completed successfully**\n\n**Steps executed**: ${execSteps.length} (${successfulSteps} successful)\n**Final URL**: ${finalUrl}\n**Total duration**: ${(totalDuration / 1000).toFixed(1)}s\n\n### Execution Trajectory\n${execSteps.slice(-10).map(s => `- **Step ${s.step}**: ${s.action}${s.url ? ` → ${s.url}` : ''} ${s.success ? '✅' : '❌'}`).join('\n')}\n\n### Next Steps\n1. **Review results**: Check if the objective was achieved\n2. **Refine approach**: Adjust strategy based on execution results\n3. **Add monitoring**: Consider adding error handling for similar tasks\n\n*Note: Advanced AI-powered summary not available (You.com API key not configured).*`,
             duration: 10000, // Timeout duration (reduced from 30s)
             success: true, // Mark as successful since execution completed
+            taskCompleted: execSteps.every(s => s.success) && (finalEvaluation?.shouldImprove !== true),
             trajectoryLength: trajectory.length,
             stepCount: execSteps.length,
           };
@@ -2154,11 +2290,12 @@ export async function browserAutomationWorkflow(
              '3. Manually verify the results in the browser tab or continue automation as needed.',
            ];
 
-           summarization = {
-             ...summarization,
-             summary: fallbackSummaryLines.join('\n'),
-             success: false,
-           };
+          summarization = {
+            ...summarization,
+            summary: fallbackSummaryLines.join('\n'),
+            success: false,
+            taskCompleted: false,
+          } as any;
          }
 
         let summaryContent = summarization.summary;
@@ -2300,6 +2437,84 @@ export async function browserAutomationWorkflow(
             }));
           }
         }
+
+        // Decision gate: If the summarizer determined the task was NOT completed,
+        // automatically re-route to the browser agent for a full end-to-end retry
+        // with feedback and context from the last run. Guard to one attempt per call.
+        try {
+          const shouldAutoRetry = Boolean(
+            summarization &&
+            (summarization as any).taskCompleted === false &&
+            !input.userQuery.includes('[AUTO-RETRY]')
+          );
+
+          if (shouldAutoRetry) {
+            workflowDebug.info('Auto-recovery triggered: rerouting to browser agent with improved query', {
+              taskCompleted: (summarization as any).taskCompleted,
+            });
+
+            // Build a refined query via the dedicated recovery agent
+            const { buildRecoveryQuery } = await import('../lib/retry-agent');
+            // Reuse the already-initialized provider-specific model to avoid API mismatch
+            const recoveryModel = model;
+
+            // Get a fresh, normalized page context snapshot to seed the next run
+            const finalPageContextRaw = await context.getPageContextAfterAction().catch(() => null);
+            const normalizedPageContext = (finalPageContextRaw && finalPageContextRaw.url)
+              ? finalPageContextRaw
+              : finalPageContextRaw
+                ? { ...finalPageContextRaw, url: finalUrl }
+                : {
+                    url: finalUrl,
+                    title: '',
+                    textContent: '',
+                    links: [],
+                    images: [],
+                    forms: [],
+                    metadata: {},
+                    viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0, devicePixelRatio: 1 },
+                  };
+
+            const recovery = await buildRecoveryQuery({
+              provider: input.settings.provider,
+              apiKey: input.settings.apiKey,
+              model: modelName,
+              modelInstance: recoveryModel,
+              originalQuery: input.userQuery,
+              summaryMarkdown: (summarization.summary || '').slice(0, 50000),
+              executionSteps: execSteps,
+              finalUrl,
+            });
+
+            // Inform the UI
+            context.pushMessage({
+              id: `auto-retry-${Date.now()}`,
+              role: 'assistant',
+              content: `🔁 Auto-Recovery: Retrying end-to-end with refined query.\n\n**Rationale:** ${recovery.rationale}`,
+              executionTrajectory: executionTrajectory.slice(),
+              pageContext: normalizedPageContext,
+              workflowTasks: convertLegacyTasks(taskManager.getAllTasks()),
+            });
+
+            // Close out current workflow for telemetry, then start a fresh run
+            endWorkflow(workflowId);
+
+            const retryInput = {
+              ...input,
+              userQuery: `[AUTO-RETRY] ${recovery.adjustedQuery}`,
+              initialContext: {
+                currentUrl: normalizedPageContext?.url || finalUrl,
+                pageContext: normalizedPageContext,
+              },
+            } as typeof input;
+
+            return await browserAutomationWorkflow(retryInput, context);
+          }
+        } catch (autoRetryError: any) {
+          workflowDebug.warn('Auto-recovery path failed; continuing without rerun', {
+            error: autoRetryError?.message,
+          });
+        }
       } catch (summarizationError: any) {
         // This should rarely happen since fallback is built into summarizationStep
         const errorMsg = summarizationError?.message || String(summarizationError);
@@ -2312,6 +2527,7 @@ export async function browserAutomationWorkflow(
           error: errorMsg,
           trajectoryLength: execSteps.length,
           stepCount: execSteps.length,
+          taskCompleted: false,
         };
       }
 

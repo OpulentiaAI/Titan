@@ -1,23 +1,34 @@
-// Streaming Step - Streams AI SDK response with tool execution using AI SDK 6 Agent
 // 'use step' directive makes this a durable, resumable step
 
-import { Experimental_Agent as ToolLoopAgent, stepCountIs } from 'ai';
+import { streamText, tool } from 'ai';
+import { z } from 'zod';
+import { logEvent } from '../lib/braintrust.ts';
+import { streamingDebug } from '../lib/debug-logger.ts';
 import type { StreamingStepOutput } from '../schemas/workflow-schemas';
 import type { Message } from '../types';
-import { logEvent, logStepProgress, logToolExecution } from '../lib/braintrust.ts';
-import { createEnhancedAgentConfig, type AgentCapabilities, AgentPerformanceMonitor } from '../lib/agent-enhancements.ts';
-import { streamingDebug, agentDebug, messageDebug, toolDebug } from '../lib/debug-logger.ts';
 
 interface StreamingStepInput {
   model: any;
   system: string;
-  tools: any;
+  tools: Record<string, any> | undefined;
   messages: Message[];
   execSteps: Array<{ step: number; action: string; url?: string; success: boolean }>;
   updateLastMessage: (updater: (msg: Message) => Message) => void;
   pushMessage: (msg: Message) => void;
+  executeTool: (toolName: string, params: any) => Promise<any>;
   abortSignal?: AbortSignal;
 }
+
+type ToolExecutionState = {
+  toolCallId: string;
+  toolName: string;
+  state: 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  errorText?: string;
+  timestamp: number;
+  duration?: number;
+};
 
 /**
  * Streaming Step - Streams AI SDK response with tool calls
@@ -27,874 +38,288 @@ export async function streamingStep(
   input: StreamingStepInput
 ): Promise<StreamingStepOutput> {
   "use step"; // Makes this a durable step
-  
-  const startTime = Date.now();
 
-  const streamingTimer = streamingDebug.time('Streaming Step');
-   
-   streamingDebug.info('Starting streaming step', {
-     messageCount: input.messages?.length || 0,
-     toolCount: Object.keys(input.tools || {}).length,
-     toolNames: Object.keys(input.tools || {}),
-     hasAbortSignal: !!input.abortSignal,
-     modelType: typeof input.model,
-     systemLength: input.system?.length || 0,
-   });
-   
-   // Validate input - ensure messages exist and are not empty
-   if (!input.messages || !Array.isArray(input.messages) || input.messages.length === 0) {
-     const errorMsg = `StreamingStep: Invalid messages input - ${input.messages === undefined ? 'undefined' : input.messages === null ? 'null' : `empty array (length: ${input.messages?.length || 0})`}`;
-     streamingDebug.error('Invalid messages input', new Error(errorMsg));
-     console.error(`❌ [StreamingStep] ${errorMsg}`);
-     throw new Error(errorMsg);
-   }
-   
-   streamingDebug.debug('Messages validated', {
-     messageCount: input.messages.length,
-     firstMessage: {
-       id: input.messages[0]?.id,
-       role: input.messages[0]?.role,
-       contentLength: input.messages[0]?.content?.length || 0,
-     },
-   });
-  
-   // Log streaming step start
-   logEvent('streaming_step_start', {
-     message_count: input.messages.length,
-     tool_count: Object.keys(input.tools).length,
-     tool_names: Object.keys(input.tools),
-   });
-    
-   try {
-    streamingDebug.debug('Initializing agent configuration', {
-      enablePerformanceMonitoring: true,
-    });
-    
-    // Initialize performance monitoring
-    const perfMonitor = new AgentPerformanceMonitor();
-    const availableToolNames = Object.keys(input.tools || {});
-    
-    streamingDebug.debug('Creating enhanced agent config', {
-      availableToolNames,
-      toolCount: availableToolNames.length,
-    });
-    
-    // Configure enhanced agent with all AI SDK 6 features
-    const enhancements = createEnhancedAgentConfig({
-      // Dynamic model selection
-      dynamicModels: {
-        fastModel: input.model,
-        powerfulModel: (typeof input.model === 'string' && input.model.includes('gemini')) 
-          ? input.model.replace('flash-lite', 'flash').replace('flash', 'pro')
-          : input.model,
-        stepThreshold: 10, // Switch to powerful model after 10 steps
-        messageThreshold: 20, // Or when conversation gets long
-      },
-      
-      // Force reasoning enabled (OpenRouter-style)
-      reasoning: {
-        enabled: true,
-        effort: 'medium', // 50% of max_tokens for reasoning
-        exclude: false, // Include reasoning in response
-      },
-      
-      // Stop conditions - adjusted to allow multi-step tasks to complete
-      stopOnCompletion: false, // Don't stop early - let tasks complete fully (disable premature stopping)
-      stopOnExcessiveErrors: true, // Stop if too many errors (keep this for error handling)
-      stopOnNavigationLoop: true, // Stop if stuck in navigation loop (keep this for infinite loops)
-      maxTokenBudget: 50000, // Stop if exceeding token budget (keep this for resource limits)
-      
-      // Context management
-      contextManagement: {
-        maxMessages: 40,
-        keepSystemMessage: true,
-        keepRecentCount: 25,
-        summarizeOldMessages: true,
-      },
-      
-      // Performance monitoring
-      enablePerformanceMonitoring: true,
-    });
-    
-    streamingDebug.debug('Enhanced agent config created', {
-      hasDynamicModels: !!enhancements.dynamicModels,
-      hasReasoning: !!enhancements.reasoning,
-      stopConditionsCount: enhancements.stopConditions?.length || 0,
-    });
-    
-    streamingDebug.debug('Creating ToolLoopAgent', {
-      modelType: typeof input.model,
-      systemLength: input.system?.length || 0,
-      toolChoice: 'required',
-      hasExperimentalReasoning: true,
-    });
-    
-    // Create ToolLoopAgent with all enhancements + forced reasoning
-    const agent = new ToolLoopAgent({
-      model: input.model,
-      instructions: input.system,
-      tools: input.tools,
-      toolChoice: 'required',
-      
-      // Force reasoning tokens (OpenRouter-style)
-      experimental_reasoning: {
-        enabled: true,
-        effort: 'medium', // 50% of tokens for reasoning
-        exclude: false, // Include reasoning in response for transparency
-      },
-      
-      // Combined stop conditions: step limit + smart conditions
-      // But be less aggressive about stopping early - allow more steps for multi-step tasks
-      stopWhen: [
-        stepCountIs(100), // Hard limit
-        // Only apply smart stop conditions after at least 3 steps (allow multi-step tasks to complete)
-        // Filter out completion-based stopping (we disabled stopOnCompletion, but keep other safety stops)
-        ...enhancements.stopConditions.filter((_, idx) => {
-          // Skip hasTaskCompletion if stopOnCompletion is false (it's at index 0 if enabled)
-          // Actually, since we set stopOnCompletion: false, it won't be in the array
-          return true; // Keep all other stop conditions (errors, loops, token budget)
-        }).map(condition => async ({ steps }: any) => {
-          // Don't stop early if we're in the middle of a multi-step task
-          if (steps.length < 3) return false;
-          // Check if stop condition matches
-          return await condition({ steps });
-        }),
-      ],
-      
-      // Enhanced prepareStep with all features
-      prepareStep: async ({ stepNumber, messages, steps }) => {
-        // Performance tracking
-        if (steps.length > 0) {
-          const lastStep = steps[steps.length - 1];
-          if (lastStep?.usage) {
-            const stepTime = Date.now() - startTime - (steps.length - 1) * 1000; // Estimate
-            perfMonitor.recordStepTime(stepTime);
-          }
-        }
-        
-        // Log step progression every 5 steps
-        if (stepNumber > 1 && stepNumber % 5 === 0) {
-          logStepProgress('streaming_step', stepNumber, {
-            previous_steps_count: steps.length,
-            messages_count: messages.length,
-            performance: perfMonitor.getSummary(),
-          });
-        }
-        
-        // Get enhanced configuration (model selection, context management, etc.)
-        const enhancedConfig = await enhancements.prepareStep({ 
-          stepNumber, 
-          messages, 
-          steps 
-        });
-        
-        const hasExecutedTool = steps.some((step: any) => (step.toolCalls?.length || 0) > 0);
-        const mergedConfig: any = { ...enhancedConfig };
-        
-        if (!hasExecutedTool) {
-          mergedConfig.toolChoice = 'required';
-          mergedConfig.activeTools = mergedConfig.activeTools || availableToolNames;
-        } else if (mergedConfig.toolChoice === undefined) {
-          mergedConfig.toolChoice = 'auto';
-        }
-        
-        // Ensure agent continues for tool-calls
-        const lastStep = steps[steps.length - 1];
-        if (lastStep?.finishReason === 'tool-calls' && stepNumber < 50) {
-          // Continue execution
-          return mergedConfig;
-        }
-        
-        return mergedConfig;
-      },
-    });
-    
-    streamingDebug.debug('ToolLoopAgent created successfully', {
-      agentType: typeof agent,
-      hasStreamMethod: typeof agent.stream === 'function',
-    });
-    
-    // Debug: Log messages before streaming to catch any issues
-    streamingDebug.debug('Preparing to stream', {
+  const startTime = Date.now();
+  const stopTimer = streamingDebug.time('Streaming Step');
+
+  try {
+    streamingDebug.info('Starting AI SDK streaming step', {
       messageCount: input.messages?.length || 0,
-      messagesType: typeof input.messages,
-      isArray: Array.isArray(input.messages),
+      providedToolCount: Object.keys(input.tools || {}).length,
+      hasAbortSignal: !!input.abortSignal,
+      modelType: typeof input.model,
     });
-    
-    if (input.messages && input.messages.length > 0) {
-      streamingDebug.debug('First message details', {
-        id: input.messages[0]?.id,
-        role: input.messages[0]?.role,
-        contentLength: input.messages[0]?.content?.length || 0,
-        hasToolExecutions: !!input.messages[0]?.toolExecutions?.length,
-      });
+
+    logEvent('streaming_step_start', {
+      message_count: input.messages?.length || 0,
+      tool_count: Object.keys(input.tools || {}).length,
+    });
+
+    if (!Array.isArray(input.messages) || input.messages.length === 0) {
+      throw new Error('Invalid messages input - expected non-empty array');
     }
-    
-    if (!input.messages || !Array.isArray(input.messages) || input.messages.length === 0) {
-      streamingDebug.error('Invalid messages for streaming', new Error('Messages array is empty or invalid'));
-      throw new Error(`Cannot stream - messages are invalid: ${JSON.stringify({ 
-        messages: input.messages, 
-        type: typeof input.messages,
-        isArray: Array.isArray(input.messages),
-        length: input.messages?.length 
-      })}`);
-    }
-    
-    // ToolLoopAgent.stream() expects an object with { messages: [...] }, not just the array
-    // Convert Message[] to AI SDK format if needed
-    const aiMessages = input.messages.map(msg => ({
+
+    const aiMessages = input.messages.map((msg) => ({
       role: msg.role,
       content: msg.content,
     }));
-    
-    streamingDebug.debug('Converted messages to AI SDK format', {
-      aiMessageCount: aiMessages.length,
-      format: 'AI SDK format',
-      firstMessageRole: aiMessages[0]?.role,
-      firstMessageContentLength: aiMessages[0]?.content?.length || 0,
-    });
-    
-    streamingDebug.debug('Calling agent.stream()', {
-      aiMessageCount: aiMessages.length,
-      format: 'AI SDK format',
-    });
-    
-    const agentTimer = agentDebug.time('Agent Stream');
 
-    // Connectivity pre-check: Test model with minimal 1-token call
-    try {
-      streamingDebug.info('Running connectivity pre-check before streaming', {
-        modelType: typeof input.model,
-        modelName: input.model?.name || input.model?.modelName || 'unknown',
+    const streamingTools: Record<string, any> = { ...(input.tools ?? {}) };
+
+    if (!streamingTools.navigate) {
+      streamingTools.navigate = tool({
+        description: 'Navigate to a URL in the browser',
+        inputSchema: z.object({
+          url: z.string().url().describe('The URL to navigate to'),
+        }),
+        execute: async ({ url }) => {
+          streamingDebug.debug('Fallback navigate tool invoked', { url });
+          return input.executeTool('navigate', { url });
+        },
       });
-
-      // Create a minimal test message to verify connectivity
-      const testMessages = [{
-        role: 'user' as const,
-        content: 'Test connectivity - respond with "OK"'
-      }];
-
-      // Use the ToolLoopAgent for connectivity test instead of direct model.stream
-      const testAgent = new ToolLoopAgent({
-        model: input.model,
-        instructions: 'You are a test agent. Respond with "OK" to any message.',
-        tools: {}, // No tools for connectivity test
-        toolChoice: 'none', // No tool calling for test
-      });
-
-      const testStream = await testAgent.stream({ messages: testMessages });
-      const testResult = await testStream;
-      const testText = testResult.text || '';
-
-      streamingDebug.info('Connectivity pre-check successful', {
-        testResponseLength: testText.length,
-        testResponsePreview: testText.substring(0, 50),
-        hasValidResponse: testText.length > 0,
-      });
-
-      console.log('✅ [CONNECTIVITY] Pre-check passed - model is responsive');
-
-    } catch (preCheckError: any) {
-      streamingDebug.error('Connectivity pre-check failed', preCheckError);
-      console.error('❌ [CONNECTIVITY] Pre-check failed - model connectivity issue:', {
-        message: preCheckError?.message,
-        name: preCheckError?.name,
-        stack: preCheckError?.stack,
-        cause: preCheckError?.cause,
-        errorType: typeof preCheckError,
-        errorKeys: Object.keys(preCheckError || {}),
-      });
-
-      // Don't throw here - let the main stream attempt proceed and fail with full error details
-      console.log('⚠️  [CONNECTIVITY] Continuing with main stream despite pre-check failure');
     }
 
-    try {
-      streamingDebug.info('Calling agent.stream() with messages', {
-        messageCount: aiMessages.length,
-        firstMessagePreview: aiMessages[0]?.content?.substring(0, 100),
-        model: input.model,
-        agentType: typeof agent,
-        hasStreamMethod: typeof agent.stream === 'function',
+    if (!streamingTools.getPageContext) {
+      streamingTools.getPageContext = tool({
+        description: 'Get the current page context and content',
+        inputSchema: z.object({
+          url: z.string().optional().describe('Optional URL to get context for'),
+        }),
+        execute: async ({ url }) => {
+          streamingDebug.debug('Fallback getPageContext tool invoked', { url });
+          return input.executeTool('getPageContext', { url: url || 'current_page' });
+        },
       });
+    }
 
-      const agentStream = await agent.stream({ messages: aiMessages });
-      streamingDebug.debug('agent.stream() returned successfully', {
-        agentStreamType: typeof agentStream,
-        hasResult: !!agentStream,
+    const streamingMessageId = `streaming-${Date.now()}`;
+    input.pushMessage({
+      id: streamingMessageId,
+      role: 'assistant',
+      content: '',
+      toolExecutions: [],
+    });
+
+    const toolExecutionStates = new Map<string, ToolExecutionState>();
+    const toolCallInfo = new Map<string, { toolName: string; args?: Record<string, unknown> }>();
+    const toolCallStartTimes = new Map<string, number>();
+    const toolCallStepIndex = new Map<string, number>();
+    const executionSteps: Array<{ step: number; action: string; url?: string; success: boolean }> = [];
+    let lastFinishReason: string | undefined;
+
+    const updateMessage = (content?: string) => {
+      const toolExecutionsForMessage = Array.from(toolExecutionStates.values()).map((state) => ({
+        toolCallId: state.toolCallId,
+        toolName: state.toolName,
+        state: state.state,
+        input: state.input,
+        output: state.output,
+        errorText: state.errorText,
+        timestamp: state.timestamp,
+      }));
+
+      input.updateLastMessage((msg) => {
+        if (msg.role !== 'assistant') {
+          return msg;
+        }
+        return {
+          ...msg,
+          content: typeof content === 'string' ? content : msg.content,
+          toolExecutions: toolExecutionsForMessage,
+        };
       });
-      
-      const result = await agentStream;
-      agentTimer();
+    };
 
-      streamingDebug.info('Agent stream completed successfully', {
-        hasResult: !!result,
-        hasFullStream: !!result.fullStream,
-        resultKeys: Object.keys(result || {}),
-        resultType: typeof result,
-      });
+    const stream = streamText({
+      model: input.model,
+      system: input.system,
+      messages: aiMessages,
+      tools: streamingTools,
+      maxSteps: 15,
+      abortSignal: input.abortSignal,
+      onStepFinish: async (event) => {
+        lastFinishReason = event.finishReason || lastFinishReason;
 
-      // Extract tool executions and build execution steps
-      const toolExecutions: Array<{ tool: string; success: boolean; duration: number }> = [];
-      const executionSteps: Array<{ step: number; action: string; url?: string; success: boolean }> = [];
-
-      // Process the agent result to extract tool execution information
-      if (result && result._steps) {
-        result._steps.forEach((step: any, index: number) => {
-          if (step.toolCall) {
-            const toolName = step.toolCall.toolName || step.toolCall.name || 'unknown';
-            const success = step.toolResult && !step.toolResult.error;
-            const duration = step.duration || 0;
-
-            toolExecutions.push({
-              tool: toolName,
-              success,
-              duration,
+        if (event.toolCalls) {
+          for (const toolCall of event.toolCalls) {
+            const args =
+              toolCall.args && typeof toolCall.args === 'object'
+                ? (toolCall.args as Record<string, unknown>)
+                : undefined;
+            toolCallInfo.set(toolCall.toolCallId, {
+              toolName: toolCall.toolName,
+              args,
             });
+            toolCallStartTimes.set(toolCall.toolCallId, Date.now());
 
-            // Map tool calls to execution steps
-            const execStep = input.execSteps.find(es => es.action === toolName || es.step === index + 1);
-            if (execStep) {
-              executionSteps.push({
-                step: execStep.step,
-                action: execStep.action,
-                url: execStep.url,
-                success,
+            executionSteps.push({
+              step: executionSteps.length + 1,
+              action: toolCall.toolName,
+              url: typeof args?.url === 'string' ? (args.url as string) : undefined,
+              success: false,
+            });
+            toolCallStepIndex.set(toolCall.toolCallId, executionSteps.length - 1);
+
+            toolExecutionStates.set(toolCall.toolCallId, {
+              toolCallId: toolCall.toolCallId,
+              toolName: toolCall.toolName,
+              state: 'input-available',
+              input: args,
+              timestamp: Date.now(),
+            });
+          }
+        }
+
+        if (event.toolResults) {
+          for (const toolResult of event.toolResults) {
+            const info = toolCallInfo.get(toolResult.toolCallId);
+            const startedAt = toolCallStartTimes.get(toolResult.toolCallId) ?? startTime;
+            const duration = Math.max(0, Date.now() - startedAt);
+            const output =
+              toolResult.result && typeof toolResult.result === 'object'
+                ? (toolResult.result as Record<string, unknown>)
+                : undefined;
+            const errorText = toolResult.error ? String(toolResult.error) : undefined;
+            const success = !toolResult.error && (output?.success !== false);
+
+            const existingState = toolExecutionStates.get(toolResult.toolCallId);
+            const toolName = toolResult.toolName || info?.toolName || 'unknown';
+
+            if (existingState) {
+              existingState.state = success ? 'output-available' : 'output-error';
+              existingState.output = output;
+              existingState.errorText = errorText;
+              existingState.duration = duration;
+            } else {
+              toolExecutionStates.set(toolResult.toolCallId, {
+                toolCallId: toolResult.toolCallId,
+                toolName,
+                state: success ? 'output-available' : 'output-error',
+                input: info?.args,
+                output,
+                errorText,
+                timestamp: Date.now(),
+                duration,
               });
             }
+
+            const stepIndex = toolCallStepIndex.get(toolResult.toolCallId);
+            if (typeof stepIndex === 'number' && executionSteps[stepIndex]) {
+              const prev = executionSteps[stepIndex];
+              const candidateUrl =
+                prev.url ||
+                (typeof info?.args?.url === 'string' ? (info.args!.url as string) : undefined) ||
+                (typeof output?.url === 'string' ? (output.url as string) : undefined) ||
+                (typeof output?.pageContext === 'object' && output?.pageContext !== null && typeof (output.pageContext as any).url === 'string'
+                  ? ((output.pageContext as any).url as string)
+                  : undefined);
+
+              executionSteps[stepIndex] = {
+                ...prev,
+                url: candidateUrl,
+                success,
+              };
+            }
           }
-        });
-      }
+        }
 
-      // If no tool executions found in _steps, use the input execSteps as-is
-      if (executionSteps.length === 0) {
-        executionSteps.push(...input.execSteps.map(step => ({
-          step: step.step,
-          action: step.action,
-          url: step.url,
-          success: false, // Default to false since we don't know the actual result
-        })));
-      }
-
-      // Build the proper StreamingStepOutput
-      const streamingOutput = {
-        fullText: result?.text || '',
-        textChunkCount: result?.text?.split(' ')?.length || 0,
-        toolCallCount: toolExecutions.length,
-        toolExecutions,
-        usage: result?._totalUsage ? {
-          promptTokens: result._totalUsage.promptTokens || 0,
-          completionTokens: result._totalUsage.completionTokens || 0,
-          totalTokens: result._totalUsage.totalTokens || 0,
-        } : undefined,
-        finishReason: result?._finishReason || 'completed',
-        duration: Date.now() - startTime,
-        executionSteps,
-      };
-
-      streamingDebug.info('Returning formatted StreamingStepOutput', {
-        fullTextLength: streamingOutput.fullText.length,
-        toolCallCount: streamingOutput.toolCallCount,
-        executionStepsCount: streamingOutput.executionSteps.length,
-        finishReason: streamingOutput.finishReason,
-      });
-
-      return streamingOutput;
-    } catch (streamError: any) {
-      streamingDebug.error('Agent stream failed', streamError);
-      console.error('❌ [STREAMING] Agent stream error:', {
-        message: streamError?.message,
-        name: streamError?.name,
-        stack: streamError?.stack,
-        cause: streamError?.cause,
-        errorType: typeof streamError,
-        errorKeys: Object.keys(streamError || {}),
-        // Additional error details for debugging
-        code: streamError?.code,
-        status: streamError?.status,
-        statusText: streamError?.statusText,
-        url: streamError?.url,
-        // Check for common AI SDK error patterns
-        isAuthError: streamError?.message?.includes('auth') || streamError?.message?.includes('key'),
-        isNetworkError: streamError?.message?.includes('network') || streamError?.message?.includes('fetch'),
-        isRateLimitError: streamError?.message?.includes('rate') || streamError?.message?.includes('limit'),
-        isModelError: streamError?.message?.includes('model') || streamError?.message?.includes('not found'),
-      });
-
-      // Log full error object for maximum debugging info
-      console.error('❌ [STREAMING] Full error object:', JSON.stringify(streamError, Object.getOwnPropertyNames(streamError), 2));
-
-      // Re-throw to let workflow handle it
-      throw streamError;
-    }
-    
-    streamingDebug.info('Agent stream initialized', {
-      hasResult: !!result,
-      hasFullStream: !!result.fullStream,
+        updateMessage();
+      },
     });
-    
-    const assistantMessage: Message = { 
-      id: (Date.now() + 1).toString(), 
-      role: 'assistant', 
-      content: '',
-      // Initialize with empty artifacts that will be populated during streaming
-      executionTrajectory: input.execSteps.map(s => ({
-        step: s.step,
-        action: s.action,
-        url: s.url,
-        success: s.success,
-        timestamp: Date.now(),
-      })),
-      workflowTasks: [] as any,
-    };
-    input.pushMessage(assistantMessage);
-    
+
     let fullText = '';
-    let textChunkCount = 0;
-    let toolCallCount = 0;
-    let stepCount = 0;
-    let toolExecutions: Array<{ tool: string; success: boolean; duration: number }> = [];
-    let lastFinishReason: string | undefined;
-    const stepTimings: Array<{ step: number; start: number; end?: number; finishReason?: string }> = [];
-    const toolTimings: Map<string, { start: number }> = new Map();
-    
-    // Capture reasoning tokens (OpenRouter/Atlas pattern)
-    let reasoning: string[] = [];
-    let reasoningDetails: any[] = [];
-    
-    // Use fullStream for automatic tool execution and continuation
-    // This enables maxSteps to work correctly - tools are executed automatically
-    // and the stream continues until completion or maxSteps is reached
-    logEvent('streaming_fullstream_start', {
-      step_count: stepCount,
-      tool_call_count: toolCallCount,
-    });
-    
-    for await (const part of result.fullStream) {
-      switch (part.type) {
-         case 'start-step':
-           stepCount++;
-           stepTimings.push({ step: stepCount, start: Date.now() });
-           streamingDebug.debug('Step started', {
-             stepNumber: stepCount,
-             timestamp: Date.now(),
-           });
-           logStepProgress('streaming_step', stepCount, {
-             phase: 'start',
-             total_steps_so_far: stepCount,
-           });
-           break;
-        
-         case 'reasoning-delta':
-         case 'reasoning':
-           // Capture reasoning tokens (OpenRouter/Atlas pattern)
-           const reasoningText = (part as any).text || (part as any).delta || '';
-           if (reasoningText) {
-             reasoning.push(reasoningText);
-             
-             // Update message with reasoning in real-time
-             input.updateLastMessage((msg) => ({
-               ...msg,
-               reasoning: reasoning.slice(), // Create copy
-             }));
-             
-             streamingDebug.debug('Reasoning captured', {
-               reasoningLength: reasoningText.length,
-               totalReasoning: reasoning.length,
-             });
-           }
-           break;
-        
-         case 'reasoning-details':
-           // Capture structured reasoning details (OpenRouter format)
-           const details = (part as any).details || (part as any);
-           reasoningDetails.push(details);
-           
-           streamingDebug.debug('Reasoning details captured', {
-             type: details.type,
-             hasText: !!details.text,
-             hasSummary: !!details.summary,
-           });
-           break;
-          
-         case 'finish-step':
-           const stepPart = part as any;
-           const currentStep = stepTimings.find(s => s.step === stepCount && !s.end);
-           if (currentStep) {
-             currentStep.end = Date.now();
-             currentStep.finishReason = stepPart.finishReason;
-             const stepDuration = currentStep.end - currentStep.start;
-             streamingDebug.debug('Step finished', {
-               stepNumber: stepCount,
-               finishReason: stepPart.finishReason,
-               duration: stepDuration,
-             });
-             logStepProgress('streaming_step', stepCount, {
-               phase: 'finish',
-               duration: stepDuration,
-               finish_reason: stepPart.finishReason,
-             });
-             
-             if (stepPart.finishReason === 'tool-calls') {
-               logEvent('agent_continuation', {
-                 current_step: stepCount,
-                 next_step: stepCount + 1,
-                 reason: 'tool-calls-require-continuation',
-               });
-               // Update UI to show continuation is happening - but only if no content yet
-               if (!fullText || fullText.trim().length === 0) {
-                 input.updateLastMessage((msg) => ({
-                   ...msg,
-                   content: msg.role === 'assistant' 
-                     ? `_Executing step ${stepCount + 1}..._`
-                     : msg.content
-                 }));
-               }
-             } else if (stepPart.finishReason === 'stop') {
-               // Check if this looks like premature stopping
-               const plannedSteps = input.messages[0]?.content?.match(/Steps?[:\s]+(\d+)/i)?.[1];
-               const expectedSteps = plannedSteps ? parseInt(plannedSteps) : 0;
-               
-               if (stepCount < expectedSteps && stepCount < 5 && fullText.length < 500) {
-                 // Agent stopped early - log detailed warning
-                 logEvent('agent_premature_stop', {
-                   current_step: stepCount,
-                   expected_steps: expectedSteps,
-                   text_length: fullText.length,
-                   tool_count: toolCallCount,
-                   finish_reason: stepPart.finishReason,
-                 });
-               } else {
-                 logEvent('agent_completed', {
-                   final_step: stepCount,
-                   finish_reason: stepPart.finishReason,
-                   text_length: fullText.length,
-                 });
-               }
-             }
-           }
-           break;
-          
-        case 'text-delta':
-          // Text delta chunk - append to full text and update UI
-          textChunkCount++;
-          fullText += part.text;
-          
-          // Update message in real-time (every chunk for responsive UI)
-          // Preserve artifacts while updating content
-          input.updateLastMessage((msg) => ({
-            ...msg,
-            content: msg.role === 'assistant' ? fullText : msg.content,
-            executionTrajectory: input.execSteps.map(s => ({
-              step: s.step,
-              action: s.action,
-              url: s.url,
-              success: s.success,
-              timestamp: Date.now(),
-            })),
+    let chunkCount = 0;
+    for await (const chunk of stream.textStream) {
+      chunkCount += 1;
+      fullText += chunk;
+      updateMessage(fullText);
+    }
+
+    updateMessage(fullText);
+
+    const usage = await stream.usage.catch(() => undefined);
+    const response = await stream.response.catch(() => undefined);
+
+    const toolExecutions = Array.from(toolExecutionStates.values()).map((state) => ({
+      tool: state.toolName,
+      success: state.state === 'output-available',
+      duration: state.duration ?? 0,
+    }));
+
+    const toolCallCount = toolExecutions.length;
+
+    const normalizedExecutionSteps =
+      executionSteps.length > 0
+        ? executionSteps.map((step, index) => ({
+            step: index + 1,
+            action: step.action,
+            url: step.url,
+            success: step.success,
+          }))
+        : (input.execSteps || []).map((step, index) => ({
+            step: index + 1,
+            action: step.action,
+            url: step.url,
+            success: !!step.success,
           }));
 
-           // Log progress every 10 chunks for debugging (less verbose than before)
-           if (textChunkCount % 10 === 0) {
-             logEvent('text_stream_progress', {
-               chunk_count: textChunkCount,
-               text_length: fullText.length,
-               step_number: stepCount,
-             });
-          }
-          break;
-          
-        case 'tool-call':
-           // Tool call initiated - track it with timing and update UI
-          toolCallCount++;
-          const toolCall = part as any; // TypedToolCall structure
-          const toolName = toolCall.toolName || 'unknown';
-           const toolCallId = toolCall.toolCallId || 'unknown';
-           toolTimings.set(toolCallId, { start: Date.now() });
-           
-           toolDebug.debug('Tool call initiated', {
-             toolName,
-             toolCallId,
-             callNumber: toolCallCount,
-             stepNumber: stepCount,
-             hasArgs: !!toolCall.args,
-             argKeys: toolCall.args ? Object.keys(toolCall.args) : [],
-             args: toolCall.args,
-           });
-           
-           logToolExecution(toolName, 'start', {
-             tool_call_id: toolCallId,
-             call_number: toolCallCount,
-             step_number: stepCount,
-             has_input: !!toolCall.args,
-             input_keys: toolCall.args ? Object.keys(toolCall.args) : [],
-           });
-           
-           // Update message with tool execution in 'input-streaming' state
-           // Feature Verification: Real-time tool execution state tracking
-           logEvent('tool_state_change', {
-             toolName,
-             toolCallId,
-             state: 'input-streaming',
-             stateTransition: '→ Processing (spinning icon)',
-             hasInput: !!toolCall.args,
-             inputKeys: toolCall.args ? Object.keys(toolCall.args) : [],
-           });
-           
-           input.updateLastMessage((msg) => {
-             const existingExecutions = msg.toolExecutions || [];
-             const toolExecution = {
-               toolCallId,
-               toolName,
-               state: 'input-streaming',
-               input: toolCall.args || {},
-               timestamp: Date.now(),
-             } as const;
-             
-             // Check if this tool execution already exists
-             const existingIndex = existingExecutions.findIndex(
-               (exec) => exec.toolCallId === toolCallId
-             );
-             
-             const updatedExecutions = existingIndex >= 0
-               ? existingExecutions.map((exec, idx) => 
-                   idx === existingIndex ? toolExecution : exec
-                 )
-               : [...existingExecutions, toolExecution];
-             
-             return {
-               ...msg,
-               toolExecutions: updatedExecutions,
-             };
-           });
-          break;
-          
-        case 'tool-result':
-           // Tool execution completed - track result with timing and update UI
-          const toolResult = part as any; // TypedToolResult structure
-          const resultToolName = toolResult.toolName || 'unknown';
-           const resultToolCallId = toolResult.toolCallId || 'unknown';
-          const toolSuccess = !toolResult.result?.error && !toolResult.result?.isError;
-           
-           const toolTiming = toolTimings.get(resultToolCallId);
-           const toolDuration = toolTiming ? Date.now() - toolTiming.start : 0;
-           toolTimings.delete(resultToolCallId);
-           
-           toolDebug.info('Tool result received', {
-             toolName: resultToolName,
-             toolCallId: resultToolCallId,
-             success: toolSuccess,
-             duration: toolDuration,
-             hasResult: !!toolResult.result,
-             hasError: !!toolResult.result?.error,
-             errorMessage: toolResult.result?.error,
-           });
-          
-          toolExecutions.push({
-            tool: resultToolName,
-            success: toolSuccess,
-             duration: toolDuration,
-           });
-           
-           // Update message with tool execution result
-           // Feature Verification: Tool execution completion with state transition
-           const finalState = toolSuccess ? 'output-available' : 'output-error';
-           
-           logToolExecution(resultToolName, 'complete', {
-             tool_call_id: resultToolCallId,
-             duration: toolDuration,
-             success: toolSuccess,
-             final_state: finalState,
-             has_output: toolSuccess && !!toolResult.result,
-             has_error: !toolSuccess,
-             error_text: toolSuccess ? undefined : (toolResult.result?.error || 'Unknown error'),
-             tool_details: {
-               has_input: !!toolResult.args,
-               has_output: toolSuccess && !!toolResult.result,
-               has_error: !toolSuccess,
-               input_keys: toolResult.args ? Object.keys(toolResult.args) : [],
-               output_type: toolSuccess && toolResult.result ? typeof toolResult.result : 'none',
-             },
-           });
-           
-           input.updateLastMessage((msg) => {
-             const existingExecutions = msg.toolExecutions || [];
-             const toolExecution = {
-               toolCallId: resultToolCallId,
-               toolName: resultToolName,
-               state: finalState as const,
-               input: toolResult.args || {},
-               output: toolSuccess ? toolResult.result : undefined,
-               errorText: toolSuccess ? undefined : (toolResult.result?.error || String(toolResult.result?.error) || 'Unknown error'),
-               timestamp: Date.now(),
-             };
-             
-             // Update existing execution or add new one
-             const existingIndex = existingExecutions.findIndex(
-               (exec) => exec.toolCallId === resultToolCallId
-             );
-             
-             const updatedExecutions = existingIndex >= 0
-               ? existingExecutions.map((exec, idx) => 
-                   idx === existingIndex ? toolExecution : exec
-                 )
-               : [...existingExecutions, toolExecution];
-             
-             return {
-               ...msg,
-               toolExecutions: updatedExecutions,
-             };
-           });
-          break;
-          
-        case 'finish':
-          // Stream finished - capture finish reason
-          lastFinishReason = part.finishReason;
-           logEvent('streaming_finished', {
-             finish_reason: part.finishReason,
-             total_steps: stepCount,
-             total_tool_calls: toolCallCount,
-             total_text_chunks: textChunkCount,
-           });
-           
-           // Log final step timing if needed
-           const finalStep = stepTimings.find(s => s.step === stepCount && !s.end);
-           if (finalStep) {
-             finalStep.end = Date.now();
-             const finalStepDuration = finalStep.end - finalStep.start;
-             logStepProgress('streaming_step', stepCount, {
-               phase: 'final_complete',
-               duration: finalStepDuration,
-               finish_reason: part.finishReason,
-             });
-           }
-          break;
-          
-        case 'error':
-          // Stream error occurred
-           logEvent('streaming_error', {
-             error: part.error,
-             step_number: stepCount,
-             tool_call_count: toolCallCount,
-           });
-          break;
-          
-        default:
-           // Unknown event type - log for debugging (but less verbose)
-           // Only log non-standard events
-           if (!['text-start', 'text-end', 'tool-input-start', 'tool-input-delta', 'tool-input-end'].includes((part as any).type)) {
-             logEvent('streaming_unknown_event', {
-               event_type: (part as any).type,
-               step_number: stepCount,
-             });
-           }
-      }
-    }
-    
-    // Get final result for usage stats and final validation
-    const finalResult = await result;
-    
-    // Use finish reason from stream if available, otherwise from final result
-    const finishReason = lastFinishReason || finalResult.finishReason;
-    
-    // Get usage stats
-    const usage = finalResult.usage instanceof Promise 
-      ? await finalResult.usage 
-      : finalResult.usage;
-    
+    const finishReason = lastFinishReason || response?.finishReason || 'stop';
     const duration = Date.now() - startTime;
-     
-     // Calculate statistics
-     const completedSteps = stepTimings.filter(s => s.end);
-     const avgStepTime = completedSteps.length > 0
-       ? completedSteps.reduce((sum, s) => sum + ((s.end! - s.start) || 0), 0) / completedSteps.length
-       : 0;
-     const avgToolTime = toolExecutions.length > 0
-       ? toolExecutions.reduce((sum, t) => sum + (t.duration || 0), 0) / toolExecutions.length
-       : 0;
-     
-     // Log comprehensive completion metrics with performance analysis
-     const performanceSummary = perfMonitor.getSummary();
-     
-     logEvent('streaming_step_complete', {
-       duration,
-       execution_summary: {
-         steps_executed: stepCount,
-         avg_step_time: Math.round(avgStepTime),
-         text_chunks: textChunkCount,
-         tool_calls: toolCallCount,
-         tool_executions: toolExecutions.length,
-         avg_tool_time: Math.round(avgToolTime),
-         finish_reason: finishReason,
-         tokens: usage?.totalTokens || 0,
-       },
-       step_breakdown: completedSteps.map(step => ({
-         step: step.step,
-         duration: step.end! - step.start,
-         finish_reason: step.finishReason || 'unknown',
-       })),
-       performance_analysis: performanceSummary,
-       enhancements_active: {
-         dynamic_model_selection: true,
-         smart_stop_conditions: true,
-         context_management: true,
-         performance_monitoring: true,
-       },
-     });
-    
-    // Update final message with complete reasoning
-    if (reasoning.length > 0) {
-      input.updateLastMessage((msg) => ({
-        ...msg,
-        reasoning: reasoning.slice(),
-        reasoningDetails: reasoningDetails.length > 0 ? reasoningDetails : undefined,
-      }));
-    }
-    
+    const resolvedChunkCount = chunkCount > 0 ? chunkCount : fullText ? 1 : 0;
+
     const output: StreamingStepOutput = {
-      fullText,
-      textChunkCount,
+      fullText: fullText || 'Browser automation tasks completed.',
+      textChunkCount: resolvedChunkCount,
       toolCallCount,
       toolExecutions,
-      usage: usage ? {
-        promptTokens: (usage as any).promptTokens || usage.inputTokens || 0,
-        completionTokens: (usage as any).completionTokens || usage.outputTokens || 0,
-        totalTokens: usage.totalTokens || 0,
-      } : undefined,
-      finishReason: String(finishReason || 'unknown'),
+      usage: usage
+        ? {
+            promptTokens:
+              (usage as any).promptTokens ??
+              usage.inputTokens ??
+              0,
+            completionTokens:
+              (usage as any).completionTokens ??
+              usage.outputTokens ??
+              0,
+            totalTokens:
+              usage.totalTokens ??
+              ((usage as any).promptTokens ?? usage.inputTokens ?? 0) +
+                ((usage as any).completionTokens ?? usage.outputTokens ?? 0),
+          }
+        : undefined,
+      finishReason: String(finishReason),
       duration,
-      executionSteps: input.execSteps || [],
-      reasoning: reasoning.length > 0 ? reasoning : undefined,
-      reasoningDetails: reasoningDetails.length > 0 ? reasoningDetails : undefined,
-    } as any; // Extended with reasoning fields
-    
-    // Validate output (may need to update schema to include reasoning)
-    const { StreamingStepOutputSchema } = await import('../schemas/workflow-schemas');
-    try {
-      return StreamingStepOutputSchema.parse(output);
-    } catch (validationError) {
-      // Return anyway - reasoning fields are optional extensions
-      return output as StreamingStepOutput;
-    }
-    
+      executionSteps: normalizedExecutionSteps,
+    };
+
+    streamingDebug.info('streamText execution completed', {
+      fullTextLength: fullText.length,
+      toolCallCount,
+      chunkCount: resolvedChunkCount,
+      finishReason: output.finishReason,
+    });
+
+    logEvent('streaming_step_complete', {
+      duration,
+      tool_call_count: toolCallCount,
+      text_length: fullText.length,
+      finish_reason: output.finishReason,
+    });
+
+    return output;
   } catch (error: any) {
     const duration = Date.now() - startTime;
-     
-     // Enhanced error logging with Braintrust
-     logEvent('streaming_step_error', {
-       duration,
-       error_type: error?.name || typeof error,
-       error_message: error?.message || String(error),
-       is_schema_error: error?.message?.includes('toolConfig') || error?.message?.includes('inputSchema') || error?.message?.includes('type must be'),
-       tool_schemas: Object.keys(input.tools).map(name => {
-        const tool = (input.tools as any)[name];
-        const params = tool?.parameters;
-        const shape = params?._def?.shape || {};
-        return `${name}(${Object.keys(shape).length} params)`;
-       }).join(', '),
-       has_stack: !!error?.stack,
-     });
-    
-    throw error; // Let workflow handle retry
+
+    logEvent('streaming_step_error', {
+      duration,
+      error_type: error?.name || typeof error,
+      error_message: error?.message || String(error),
+    });
+
+    streamingDebug.error('Streaming step failed', error);
+    throw error;
+  } finally {
+    stopTimer();
   }
 }

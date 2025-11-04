@@ -99,10 +99,10 @@ const AgentPromptComposerComponent = ({
         },
       });
 
-      console.log('🎨 [PromptComposer] Component mounted', {
+      console.log('🎨 [PromptComposer] Component mounted', JSON.stringify({
         templates: templates.length,
         features: { voice: showVoiceInput, files: showFileAttachment, settings: showSettings },
-      });
+      }, null, 2));
 
       mountedRef.current = true;
     }
@@ -139,10 +139,10 @@ const AgentPromptComposerComponent = ({
         fileNames: attachedFiles.map(f => f.name),
       });
 
-      console.log('📝 [PromptComposer] Submitting prompt', {
+      console.log('📝 [PromptComposer] Submitting prompt', JSON.stringify({
         length: value.length,
         files: attachedFiles.length,
-      });
+      }, null, 2));
 
       onSubmit?.(value, {
         files: attachedFiles.length > 0 ? attachedFiles : undefined,

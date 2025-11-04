@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-11-03T21:42:01.623Z",
+  "testId": "telemetry-test-1762206121622",
+  "config": {
+    "model": "google/gemini-2.5-flash-lite",
+    "provider": "gateway",
+    "toolMode": "tool-router",
+    "computerUseEngine": "gateway-flash-lite"
+  },
+  "execution": {
+    "totalDuration": 2251,
+    "planningDuration": 52,
+    "executionDuration": 0,
+    "summarizationDuration": 0,
+    "stepsCount": 1,
+    "toolCallsCount": 0,
+    "success": true,
+    "finalUrl": "current_page"
+  },
+  "summarization": {
+    "success": false,
+    "summaryLength": 0,
+    "summaryContent": "",
+    "fallbackUsed": false,
+    "error": "needsRecovery is not defined"
+  },
+  "pageContexts": {
+    "initial": "https://example.com",
+    "final": "",
+    "navigationSteps": []
+  }
+}

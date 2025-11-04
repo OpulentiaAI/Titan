@@ -2,6 +2,7 @@
 // Implements all modern AI SDK 6 features for robust tool execution
 
 import { z } from 'zod';
+import { renderAddendum } from './system-addendum';
 import { tool, CoreTool, generateText, streamText, LanguageModel } from 'ai';
 import type { ToolExecutionOptions } from 'ai';
 
@@ -553,17 +554,23 @@ export async function executeBrowserTask(params: {
     },
   });
 
-  const systemPrompt = `You are a browser automation agent. Execute the user's task using available tools.
+  const baseSystemPrompt = `ROLE
+You are a browser automation agent. Use the tool contract to complete the task reliably and fully.
 
-Available tools: navigate, click, type, getPageContext, scroll, wait
+TOOLS
+- navigate, getPageContext, click, type_text, press_key, scroll, wait
 
-CRITICAL Rules:
-1. ALWAYS call getPageContext after navigate to see what's on the page
-2. Use CSS selectors for click and type
-3. Verify actions with getPageContext before proceeding
-4. Complete the entire task - don't stop early
+RULES
+1) After navigation, verify state via getPageContext before interacting
+2) Use CSS selectors for click/type_text; avoid coordinates unless necessary
+3) After any state change (navigate/click/type/scroll), verify via getPageContext
+4) Do not stop early; continue until the objective is satisfied
+5) No chain-of-thought in outputs; be concise and factual
 
+CONTEXT
 Current URL: ${params.currentUrl || 'about:blank'}`;
+
+  const systemPrompt = [baseSystemPrompt, renderAddendum('ADDENDUM')].join('\n\n');
 
   const result = await orchestrator.execute({
     model: params.model,

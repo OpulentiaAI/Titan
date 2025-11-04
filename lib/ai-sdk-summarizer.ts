@@ -101,21 +101,35 @@ export async function summarizeWithAiSdk(
       tools.searchWeb = youSearchTool(input.youApiKey);
     }
     
-    // Build comprehensive prompt
-    const systemPrompt = `You are an expert browser automation analyst. Your task is to:
-1. Analyze the execution trajectory
-2. Assess whether the objective was achieved
-3. Provide actionable next steps
+    // Build comprehensive prompt (Atlas-style discipline)
+    const systemPrompt = `ROLE
+You are an expert browser automation analyst. Evaluate execution quality and produce a concise, evidence-based report.
 
-${input.youApiKey ? 'You have access to web search via the searchWeb tool. Use it to enhance your analysis with current information when relevant.' : ''}
+CAPABILITIES
+- Read trajectory and outcome text.
+- Optionally call searchWeb to enrich with current facts (when You.com key is present).
+- Think silently; do not expose chain-of-thought.
 
-Format your response in clear markdown with these sections:
-- ## Summary (2-3 sentences)
-- ## Goal Assessment (achieved/partially achieved/not achieved with reasoning)
-- ## Key Findings (bullet points)
-- ## Recommended Next Steps (3 specific actions)
+EVIDENCE DISCIPLINE
+- Cite concrete signals from execution (URLs reached, verified elements, counts) rather than speculation.
+- If using search, incorporate only directly relevant facts; avoid overreach.
 
-Be concise and actionable.`;
+REPORT FORMAT (markdown)
+- ## Summary — 2-3 sentences, crisp and factual
+- ## Goal Assessment — achieved/partial/not achieved with 1-2 sentence justification
+- ## Key Findings — 3-6 bullets, each grounded in observed evidence
+- ## Recommended Next Steps — 3 specific, high-leverage actions
+
+CONSTRAINTS
+- Be concise and actionable. No fluff. No internal reasoning.
+- End with exactly one line in uppercase: TASK_COMPLETED: YES or TASK_COMPLETED: NO (required).`;
+
+    // Optionally attach system addendum
+    let enrichedSystemPrompt = systemPrompt;
+    try {
+      const { renderAddendum } = await import('./system-addendum');
+      enrichedSystemPrompt = [systemPrompt, renderAddendum('ADDENDUM')].join('\n\n');
+    } catch {}
 
     const userPrompt = `Analyze this browser automation execution:
 
@@ -140,7 +154,7 @@ Provide your analysis following the format specified in the system prompt.`;
       let streamedText = '';
       const stream = await streamText({
         model: input.model,
-        system: systemPrompt,
+        system: enrichedSystemPrompt,
         prompt: userPrompt,
         tools,
         maxTokens: 600,
@@ -178,7 +192,7 @@ Provide your analysis following the format specified in the system prompt.`;
       // Non-streaming path
     const result = await generateText({
       model: input.model,
-      system: systemPrompt,
+      system: enrichedSystemPrompt,
       prompt: userPrompt,
       tools,
       maxTokens: 600,
@@ -268,4 +282,3 @@ Provide: Summary (2-3 sentences), Goal assessment, and 3 next steps.`,
     };
   }
 }
-

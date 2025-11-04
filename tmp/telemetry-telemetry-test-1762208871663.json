@@ -1,0 +1,30 @@
+{
+  "timestamp": "2025-11-03T22:27:51.663Z",
+  "testId": "telemetry-test-1762208871663",
+  "config": {
+    "model": "openai/gpt-4o-mini",
+    "provider": "openrouter"
+  },
+  "execution": {
+    "totalDuration": 8834,
+    "planningDuration": 49,
+    "executionDuration": 0,
+    "summarizationDuration": 0,
+    "stepsCount": 1,
+    "toolCallsCount": 0,
+    "success": true,
+    "finalUrl": ""
+  },
+  "summarization": {
+    "success": false,
+    "summaryLength": 0,
+    "summaryContent": "",
+    "fallbackUsed": false,
+    "error": "Unknown error"
+  },
+  "pageContexts": {
+    "initial": "https://example.com",
+    "final": "",
+    "navigationSteps": []
+  }
+}

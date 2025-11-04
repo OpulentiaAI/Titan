@@ -16,7 +16,7 @@ export const BrowserAutomationWorkflowInputSchema = z.object({
     braintrustApiKey: z.string().min(1).optional(),
     braintrustProjectName: z.string().min(1).max(200).optional(),
     youApiKey: z.string().min(1).optional(),
-    computerUseEngine: z.enum(['google', 'gateway-flash-lite']).optional(),
+    computerUseEngine: z.enum(['google', 'gateway', 'gateway-flash-lite', 'openrouter']).optional(),
   }).strict(),
   initialContext: z.object({
     currentUrl: z.string().url('Invalid URL format').optional().or(z.literal('')),
@@ -145,6 +145,8 @@ export const SummarizationStepOutputSchema = z.object({
   summary: z.string().min(1, 'Summary cannot be empty').max(50000, 'Summary too long'),
   duration: z.number().nonnegative('Duration cannot be negative'),
   success: z.boolean(),
+  // Binary determination of whether the original task/objective was achieved
+  taskCompleted: z.boolean().describe('Binary determination if the task was completed successfully'),
   trajectoryLength: z.number().int().nonnegative('Trajectory length cannot be negative').max(100000),
   stepCount: z.number().int().nonnegative('Step count cannot be negative').max(10000),
 }).strict();
@@ -202,4 +204,3 @@ export const WorkflowTelemetrySchema = z.object({
 });
 
 export type WorkflowTelemetry = z.infer<typeof WorkflowTelemetrySchema>;
-

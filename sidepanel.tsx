@@ -22,6 +22,7 @@ import { ToolExecutionDisplay } from './components/ToolExecutionDisplay';
 import { PlanningDisplay } from './components/PlanningDisplay';
 import { Tool } from './components/ui/tool';
 import { AgentComposerIntegration } from './components/agents-ui/agent-composer-integration';
+import { ModelMorphDropdown } from './components/ai-elements/model-morph-dropdown';
 import { ReasoningChatForm } from './components/reasoning-chat-form';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from './components/ai-elements/reasoning';
 import { Response } from './components/ai-elements/response';
@@ -32,6 +33,7 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from './components/ai-elements/conversation';
+import { buildFinalSummaryMessage } from './lib/message-utils';
 import { 
   Message, 
   MessageContent 
@@ -449,8 +451,8 @@ function ChatSidebar() {
           migratedSettings = {
             ...migratedSettings,
             provider: 'gateway',
-            model: 'google/gemini-2.5-flash-lite-preview-09-2025',
-            computerUseEngine: 'gateway-flash-lite',
+            model: 'google/gemini-2.5-flash', // Keep user's choice or use good default
+            computerUseEngine: 'gateway', // Use gateway engine (not flash-lite specific)
           };
           console.log('   New model:', migratedSettings.model);
 
@@ -458,13 +460,13 @@ function ChatSidebar() {
           chrome.storage.local.set({ atlasSettings: migratedSettings });
         }
 
-        console.log('🔑 Loaded settings:', {
+        console.log('🔑 Loaded settings:', JSON.stringify({
           provider: migratedSettings.provider,
           model: migratedSettings.model,
           hasApiKey: !!migratedSettings.apiKey,
           apiKeyLength: migratedSettings.apiKey?.length,
           apiKeyPrefix: migratedSettings.apiKey?.substring(0, 10) + '...'
-        });
+        }, null, 2));
         setSettings(migratedSettings);
 
         // Initialize Braintrust if API key is provided
@@ -559,8 +561,8 @@ function ChatSidebar() {
   };
 
   const getComputerUseEngine = () => {
-    if (!settings) return 'google';
-    return settings.computerUseEngine || (settings.provider === 'google' ? 'google' : 'gateway-flash-lite');
+    if (!settings) return 'gateway';
+    return settings.computerUseEngine || (settings.provider === 'google' ? 'google' : 'gateway');
   };
 
   const getComputerUseLabel = () => {
@@ -1527,12 +1529,12 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         
         console.log('🚀 [Gateway Computer Use] Starting browser automation workflow');
         console.log('🚀 [Gateway Computer Use] User query:', userQuery.substring(0, 100));
-        console.log('🚀 [Gateway Computer Use] Settings:', {
+        console.log('🚀 [Gateway Computer Use] Settings:', JSON.stringify({
           provider: settings?.provider,
           model: settings?.model,
           hasBraintrust: !!settings?.braintrustApiKey,
           hasYouApi: !!settings?.youApiKey,
-        });
+        }, null, 2));
         
         // Helper to query active tab info
         const getActiveTabInfo = async (): Promise<{ id?: number; url?: string }> => {
@@ -1632,7 +1634,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           settings: {
             provider: settings.provider || 'gateway',
             apiKey: settings.apiKey,
-            model: settings.model || 'google/gemini-2.5-flash-lite-preview-09-2025',
+            model: settings.model || 'google/gemini-2.5-flash',
             braintrustApiKey: settings.braintrustApiKey,
             braintrustProjectName: settings.braintrustProjectName,
             youApiKey: settings.youApiKey,
@@ -1680,27 +1682,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
 
           // Always push a final summary message to ensure it's visible
           // This ensures the summary shows even if streaming updates didn't work
-          const finalSummaryMessage: Message = {
-            id: `summary-final-${Date.now()}`,
-            role: 'assistant',
-            content: `---\n## Summary & Next Steps\n\n${workflowOutput.summarization.summary}`,
-            summarization: workflowOutput.summarization,
-            executionTrajectory: workflowOutput.executionTrajectory,
-            pageContext: workflowOutput.pageContext,
-            workflowMetadata: {
-              workflowId: workflowOutput.metadata?.workflowId,
-              totalDuration: workflowOutput.totalDuration,
-              finalUrl: workflowOutput.finalUrl,
-            },
-            workflowTasks: workflowOutput.taskManager ?
-              convertLegacyTasks(workflowOutput.taskManager.getAllTasks()).map(t => ({
-                id: t.id,
-                title: t.title,
-                description: t.description,
-                status: t.status === 'cancelled' || t.status === 'retrying' ? 'pending' as const : t.status,
-              }))
-              : undefined,
-          } as Message;
+          const finalSummaryMessage: Message = buildFinalSummaryMessage(workflowOutput);
 
           console.log('📝 [Gateway Computer Use] Final summary message prepared:', {
             id: finalSummaryMessage.id,
@@ -1708,17 +1690,54 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
             contentLength: finalSummaryMessage.content.length,
             hasSummarization: !!finalSummaryMessage.summarization,
             hasExecutionTrajectory: !!finalSummaryMessage.executionTrajectory,
-            contentPreview: finalSummaryMessage.content.substring(0, 100) + '...'
+            contentPreview: finalSummaryMessage.content.substring(0, 100) + '...',
+            contentSample: finalSummaryMessage.content.split('\n').slice(0, 5).join('\n')
           });
 
           // Use @ai-sdk-tools/store API correctly - just push the message
           // The store will handle state updates
+          console.log('📝 [Gateway Computer Use] About to push final summary message:', {
+            messageId: finalSummaryMessage.id,
+            messageContentLength: finalSummaryMessage.content.length,
+            currentMessagesLength: messages.length
+          });
+
            try {
-             pushMessage(finalSummaryMessage);
+             // Replace the most recent summary if one already exists to avoid duplicates
+             const current = Array.isArray(messages) ? messages : [];
+             const lastSummaryIndexFromEnd = current
+               .slice()
+               .reverse()
+               .findIndex(m => m.role === 'assistant' && m.content?.includes('Summary & Next Steps'));
+             if (lastSummaryIndexFromEnd >= 0) {
+               const idx = current.length - 1 - lastSummaryIndexFromEnd;
+               const existing = current[idx];
+               if (existing) {
+                 console.log('♻️  [Gateway Computer Use] Replacing prior summary message:', { id: existing.id, idx });
+                 replaceMessageById(existing.id, { ...finalSummaryMessage, id: existing.id });
+               } else {
+                 pushMessage(finalSummaryMessage);
+               }
+             } else {
+               const result = pushMessage(finalSummaryMessage);
+               console.log('✅ [Gateway Computer Use] Successfully pushed final summary message:', {
+                 result,
+                 messageId: finalSummaryMessage.id,
+                 newMessagesLength: messages.length + 1
+               });
+             }
            } catch (error) {
-             console.error('❌ [Gateway Computer Use] Failed to push final summary message:', error);
+             console.error('❌ [Gateway Computer Use] Failed to push/replace final summary message:', error);
              // Fallback: try again with a slight delay
-             setTimeout(() => pushMessage(finalSummaryMessage), 100);
+             console.log('🔄 [Gateway Computer Use] Retrying in 100ms...');
+             setTimeout(() => {
+               try {
+                 const retryResult = pushMessage(finalSummaryMessage);
+                 console.log('✅ [Gateway Computer Use] Retry successful:', retryResult);
+               } catch (retryError) {
+                 console.error('❌ [Gateway Computer Use] Retry also failed:', retryError);
+               }
+             }, 100);
            }
 
           // Scroll to bottom to ensure the summary is visible
@@ -1748,24 +1767,30 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
             error: workflowOutput.summarization?.error,
           });
 
-          // Always show a completion message, even if summarization failed
-          const completionContent = workflowOutput.summarization?.summary
-            ? `---\n## Summary & Next Steps\n\n${workflowOutput.summarization.summary}\n\n*Note: Summary generation encountered issues but completed.*`
-            : `✅ **Workflow Complete**\n\nExecution finished successfully with ${workflowOutput.executionTrajectory.length} step(s).\n\n**Final URL**: ${workflowOutput.finalUrl || 'N/A'}\n\n*Note: Detailed summary not available (You.com API key not configured).*`;
-
-          pushMessage({
-            id: `completion-${Date.now()}`,
-            role: 'assistant',
-            content: completionContent,
-            summarization: workflowOutput.summarization,
-            executionTrajectory: workflowOutput.executionTrajectory,
-            pageContext: workflowOutput.pageContext,
-            workflowMetadata: {
-              workflowId: workflowOutput.metadata?.workflowId,
-              totalDuration: workflowOutput.totalDuration,
-              finalUrl: workflowOutput.finalUrl,
-            },
-          });
+          // Build a unified fallback summary and replace/prioritize it
+          const completionMessage: Message = buildFinalSummaryMessage(workflowOutput);
+          try {
+            const current = Array.isArray(messages) ? messages : [];
+            const lastSummaryIndexFromEnd = current
+              .slice()
+              .reverse()
+              .findIndex(m => m.role === 'assistant' && m.content?.includes('Summary & Next Steps'));
+            if (lastSummaryIndexFromEnd >= 0) {
+              const idx = current.length - 1 - lastSummaryIndexFromEnd;
+              const existing = current[idx];
+              if (existing) {
+                console.log('♻️  [Gateway Computer Use] Replacing prior summary (fallback):', { id: existing.id, idx });
+                replaceMessageById(existing.id, { ...completionMessage, id: existing.id });
+              } else {
+                pushMessage(completionMessage);
+              }
+            } else {
+              pushMessage(completionMessage);
+            }
+          } catch (error) {
+            console.error('❌ [Gateway Computer Use] Failed to push/replace fallback summary:', error);
+            setTimeout(() => pushMessage(completionMessage), 100);
+          }
         }
         
         return workflowOutput;
@@ -1949,55 +1974,23 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
     abortControllerRef.current = new AbortController();
 
     try {
-      // Determine if browser tools should be used
-      // Auto-detect based on provider + computer use engine settings
+      // Browser tools are now MANDATORY - no more conditional checks
+      // Auto-detect based on provider selection
       const engine = getComputerUseEngine();
-      const shouldUseBrowserTools = browserToolsEnabled || 
-        (settings.provider === 'gateway' && engine === 'gateway-flash-lite' && settings.apiKey) ||
-        (settings.provider === 'google' && engine === 'google' && settings.apiKey);
+      console.log('🔧 [handleSubmit] Browser tools MANDATORY - using engine', { provider: settings.provider, engine, hasApiKey: !!settings.apiKey, model: settings.model });
 
-      // BROWSER TOOLS MODE - Use selected engine
-      if (shouldUseBrowserTools) {
-        console.log('🔧 [handleSubmit] Browser tools mode detected', { browserToolsEnabled, provider: settings.provider, engine, hasApiKey: !!settings.apiKey });
-
-        if (engine === 'google') {
-          // Safety check: Ensure we have Google API key
-          if (settings.provider !== 'google' || !settings.apiKey) {
-            setBrowserToolsEnabled(false);
-            updateLastMessage((msg) => ({
-              ...msg,
-              content: msg.role === 'assistant' 
-                ? '⚠️ **Browser Tools (Google Computer Use) requires a Google API key**\n\nPlease:\n1. Open Settings (⚙️)\n2. Select "Google" as provider\n3. Add your Google API key\n4. Try again'
-                : msg.content
-            }));
-            setIsLoading(false);
-            return;
-          }
-
-          if (mcpClientRef.current) {
-            try {
-              await mcpClientRef.current.close();
-            } catch (e) {
-              // Silent fail
-            }
-            mcpClientRef.current = null;
-            mcpToolsRef.current = null;
-          }
-
-          await streamWithGeminiComputerUse(newMessages);
-        } else {
-          // gateway-flash-lite
-          if (settings.provider !== 'gateway' || !settings.apiKey) {
-            setBrowserToolsEnabled(false);
-            updateLastMessage((msg) => ({
-              ...msg,
-              content: msg.role === 'assistant'
-                ? '⚠️ **Browser Tools (AI Gateway Flash Lite) requires an AI Gateway API key**\n\nPlease:\n1. Open Settings (⚙️)\n2. Select "AI Gateway" as provider\n3. Add your AI Gateway API key\n4. Try again'
-                : msg.content
-            }));
-            setIsLoading(false);
-            return;
-          }
+      // Gateway/OpenRouter providers use AI Gateway
+      if (settings.provider === 'gateway' || settings.provider === 'openrouter') {
+        if (!settings.apiKey) {
+          updateLastMessage((msg) => ({
+            ...msg,
+            content: msg.role === 'assistant'
+              ? '⚠️ **Browser Tools requires an API key**\n\nPlease:\n1. Open Settings (⚙️)\n2. Add your API key for your selected provider\n3. Try again'
+              : msg.content
+          }));
+          setIsLoading(false);
+          return;
+        }
 
           if (mcpClientRef.current) {
             try { await mcpClientRef.current.close(); } catch {}
@@ -2008,161 +2001,31 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           console.log('🚀 [handleSubmit] Using Gateway Computer Use workflow');
           await streamWithGatewayComputerUse(newMessages);
         }
-      } else if (settings.composioApiKey) {
-        if (isComposioSessionExpired()) {
-          console.warn('Composio session expired, reinitializing...');
-          await loadSettings(true);
+
+        setIsLoading(false);
+      } catch (error: any) {
+        console.error('❌ Chat error occurred:');
+        console.error('Error type:', typeof error);
+        console.error('Error name:', error?.name);
+        console.error('Error message:', error?.message);
+        console.error('Error stack:', error?.stack);
+        console.error('Full error object:', error);
+
+        if (error.name !== 'AbortError') {
+          // Show detailed error message to user
+          const errorDetails = error?.stack || JSON.stringify(error, null, 2);
+          pushMessage({
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: `Error: ${error.message}\n\nDetails:\n\`\`\`\n${errorDetails}\n\`\`\``,
+          });
         }
-
-        const isComputerUseModel = settings.model === 'gemini-2.5-computer-use-preview-10-2025';
-        if (isComputerUseModel && settings.provider === 'google') {
-          setSettings({ ...settings, model: 'gemini-2.5-pro' });
-          console.warn('Switching to gemini-2.5-pro (incompatible with MCP)');
-        }
-
-        if (mcpClientRef.current && mcpToolsRef.current) {
-          await streamWithAISDKAndMCP(newMessages, mcpToolsRef.current);
-        } else if (mcpInitPromiseRef.current) {
-          await mcpInitPromiseRef.current;
-          if (mcpClientRef.current && mcpToolsRef.current) {
-            await streamWithAISDKAndMCP(newMessages, mcpToolsRef.current);
-          } else {
-            // Use AI SDK for gateway provider, otherwise use Google streaming
-            if (settings.provider === 'gateway') {
-              await streamWithAISDK(newMessages);
-            } else {
-              await streamGoogle(newMessages, abortControllerRef.current.signal);
-            }
-          }
-        } else {
-          console.log('🔧 [handleSubmit] No browser tools, checking MCP/Tool Router');
-          mcpInitPromiseRef.current = (async () => {
-            try {
-              const storage = await chrome.storage.local.get(['composioToolRouterMcpUrl', 'composioSessionId', 'atlasSettings']);
-              if (!storage.composioToolRouterMcpUrl || !storage.composioSessionId) {
-                console.log('⚠️ [handleSubmit] No MCP session, will use standard streaming');
-                return;
-              }
-              console.log('🔌 [handleSubmit] MCP session found, initializing client');
-
-              // MCP client creation - check if available in AI SDK
-              const aiModule = await import('ai');
-              const createMCPClient = (aiModule as any).createMCPClient || (aiModule as any).experimental_createMCPClient;
-              
-              if (!createMCPClient) {
-                console.warn('MCP client creation not available in AI SDK version');
-                return;
-              }
-
-              const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-              const composioApiKey = storage.atlasSettings?.composioApiKey;
-
-              const transportOptions: any = { sessionId: storage.composioSessionId };
-              if (composioApiKey) {
-                transportOptions.headers = { 'x-api-key': composioApiKey };
-              }
-
-              const mcpClient = await createMCPClient({
-                transport: new StreamableHTTPClientTransport(
-                  new URL(storage.composioToolRouterMcpUrl),
-                  transportOptions
-                ),
-              });
-
-              const mcpTools = await mcpClient.tools();
-              if (Object.keys(mcpTools).length > 0) {
-                mcpClientRef.current = mcpClient;
-                mcpToolsRef.current = mcpTools;
-              } else {
-                await mcpClient.close();
-              }
-            } catch (error) {
-              console.error('MCP init failed:', error);
-            } finally {
-              mcpInitPromiseRef.current = null;
-            }
-          })();
-
-          await mcpInitPromiseRef.current;
-
-          if (mcpClientRef.current && mcpToolsRef.current) {
-            console.log('🔌 [handleSubmit] MCP client ready, calling streamWithAISDKAndMCP');
-            await streamWithAISDKAndMCP(newMessages, mcpToolsRef.current);
-          } else {
-            // Use AI SDK for gateway provider, otherwise use Google streaming
-            console.log('🚀 [handleSubmit] No MCP, using standard streaming');
-            if (settings.provider === 'gateway') {
-              console.log('🟢 [handleSubmit] Calling streamWithAISDK (gateway)');
-              await streamWithAISDK(newMessages);
-            } else {
-              console.log('🔵 [handleSubmit] Calling streamGoogle');
-              await streamGoogle(newMessages, abortControllerRef.current.signal);
-            }
-          }
-        }
-      } else {
-        // Use AI SDK for gateway provider, otherwise use Google streaming
-        console.log('🚀 [handleSubmit] Tool router disabled, using standard streaming');
-        if (settings.provider === 'gateway') {
-          console.log('🟢 [handleSubmit] Calling streamWithAISDK (gateway)');
-          await streamWithAISDK(newMessages);
-        } else {
-          console.log('🔵 [handleSubmit] Calling streamGoogle');
-          await streamGoogle(newMessages, abortControllerRef.current.signal);
-        }
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
-    } catch (error: any) {
-      // Error handling is the same
-      console.error('❌ Chat error occurred:');
-      console.error('Error type:', typeof error);
-      console.error('Error name:', error?.name);
-      console.error('Error message:', error?.message);
-      console.error('Error stack:', error?.stack);
-      console.error('Full error object:', error);
-
-      if (error.name !== 'AbortError') {
-        // Show detailed error message to user
-        const errorDetails = error?.stack || JSON.stringify(error, null, 2);
-        pushMessage({
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: `Error: ${error.message}\n\nDetails:\n\`\`\`\n${errorDetails}\n\`\`\``,
-        });
-      }
-      setIsLoading(false);
-    }
   };
 
-  // Check if user is scrolled to bottom
-  const isAtBottom = () => {
-    if (!messagesContainerRef.current) return true;
-    const container = messagesContainerRef.current;
-    const threshold = 100; // pixels from bottom
-    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
-  };
-
-  // Handle scroll detection
-  const handleScroll = () => {
-    setIsUserScrolled(!isAtBottom());
-  };
-
-  // Auto-scroll to bottom when messages change (unless user scrolled up)
-  useEffect(() => {
-    if (!isUserScrolled && Array.isArray(messages) && messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isUserScrolled]);
-
-  // Attach scroll listener
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
-  }, []);
+  // Auto-scroll behavior handled by use-stick-to-bottom via Conversation wrapper.
+  // We still keep a simple flag to reset any manual scroll gating when user sends a message.
 
   if (showSettings && !settings) {
     return (
@@ -2236,7 +2099,7 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
 
         <div className="flex-1 overflow-hidden">
           <Conversation className="h-full">
-            <ConversationContent className="h-full">
+            <ConversationContent className="h-full" data-testid="chat-messages">
               {(!Array.isArray(messages) || messages.length === 0) ? (
                 <div className="flex h-full items-center justify-center">
                   <div className="welcome-message text-center">
@@ -2254,7 +2117,9 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                         role: message.role,
                         contentLength: message.content.length,
                         hasSummarization: !!message.summarization,
-                        hasWorkflowTasks: !!message.workflowTasks
+                        hasWorkflowTasks: !!message.workflowTasks,
+                        contentPreview: message.content.substring(0, 200) + '...',
+                        messageKeys: Object.keys(message)
                       });
                     }
 
@@ -2439,10 +2304,10 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                                     })()}
                                     
                                     {/* Enhanced Response primitive for streaming content */}
-                                    <Response content={message.content} />
+                                    <Response>{message.content}</Response>
                                   </>
                                 ) : (
-                                  <Response content={message.content} />
+                                  <Response>{message.content}</Response>
                                 )}
                               </>
                             ) : (
@@ -2462,10 +2327,31 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
                 </>
               )}
             </ConversationContent>
-            
+            {/* Show scroll-to-bottom button when user scrolls up */}
+            <ConversationScrollButton />
+
             {/* Fixed input form structure */}
             <div className="input-form backdrop-blur-sm">
               <div className="mx-auto max-w-4xl w-full">
+                <div className="flex items-center justify-end pb-2 px-1">
+                  {settings && (
+                    <ModelMorphDropdown
+                      provider={settings.provider}
+                      value={settings.model}
+                      label="Model"
+                      onSelect={(modelId) => {
+                        try {
+                          const next = { ...(settings || {}), model: modelId } as Settings;
+                          chrome.storage.local.set({ atlasSettings: next }, () => {
+                            setSettings(next);
+                          });
+                        } catch (e) {
+                          console.error('Failed to update model:', e);
+                        }
+                      }}
+                    />
+                  )}
+                </div>
                 <AgentComposerIntegration
                   onSubmit={handleComposerSubmit}
                   isLoading={isLoading}

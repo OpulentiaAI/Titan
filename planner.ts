@@ -112,8 +112,8 @@ export async function generateExecutionPlan(
   // Enhanced with strict constraints to prevent common LLM failures
   const instructionSchema = z.object({
     step: z.number().int().min(1).describe('Step number (must be a positive integer)'),
-    action: z.enum(['navigate', 'click', 'type', 'scroll', 'wait', 'getPageContext'])
-      .describe('Action type - MUST be exactly one of: navigate, click, type, scroll, wait, getPageContext. Do NOT use waitForElement, waitFor, getContext, or other invalid values.'),
+    action: z.enum(['navigate', 'click', 'type', 'type_text', 'press_key', 'scroll', 'wait', 'getPageContext'])
+      .describe('Action type - MUST be exactly one of: navigate, click, type, type_text, press_key, scroll, wait, getPageContext. Do NOT use waitForElement, waitFor, getContext, or other invalid values.'),
     target: z.string().min(1).describe('URL, CSS selector, text to type, or description (cannot be empty)'),
     reasoning: z.string().min(10).describe('Why this step is necessary - minimum 10 characters (GEPA reflection)'),
     expectedOutcome: z.string().min(10).describe('What should happen after this step - minimum 10 characters'),
@@ -148,56 +148,51 @@ export async function generateExecutionPlan(
   // Improved accuracy from 0.3 to 0.9, completeness from 0.2 to 1.0, efficiency maintained at 1.0
   // Score: 0.966 (Accuracy: 0.9, Efficiency: 1.0, Completeness: 1.0)
   // Run ID: run-1761855676725
-  const systemPrompt = `You are an expert planning agent that creates step-by-step browser automation plans. Your plans must be granular, robust, and optimized for execution.
+  const systemPrompt = `ROLE
+You are an expert planning agent for browser automation. Produce execution-ready plans that are robust, verifiable, and efficient.
 
-**Available Actions (MUST use these exact action names):**
-*   \`navigate\`: Navigates to a specific URL. Target: URL string.
-*   \`type\`: Enters text into an element. Target: CSS selector or element description.
-*   \`click\`: Clicks an element. Target: CSS selector or element description.
-*   \`scroll\`: Scrolls the page. Target: direction ('up', 'down', 'top', 'bottom') or selector.
-*   \`wait\`: Pauses execution for a duration or until element appears. Target: duration in seconds or CSS selector.
-*   \`getPageContext\`: Retrieves the current page's content and structure. Target: 'current_page' or specific section.
+ENVIRONMENT
+- Generic browser automation with a fixed tool contract.
+- You cannot assume site-specific DOM at planning time; prefer generic, verifiable strategies.
+- Think silently; do not reveal chain-of-thought. Output only plan fields.
 
-**CRITICAL**: You MUST use ONLY these 6 action names exactly as shown above. Do NOT use "waitForElement", "waitFor", "getContext", "getPage", or any other variations.
+TOOLS (use exact action names)
+- navigate — navigate to a URL (target: URL string)
+- type / type_text — enter text (target: CSS selector or element description)
+- click — click element (target: CSS selector or element description)
+- scroll — scroll page/element (target: direction or selector)
+- wait — pause (target: seconds or selector)
+- getPageContext — read current page info (target: 'current_page' or section)
+- press_key — press a key (Enter/Tab/Escape)
 
-**Your Task:**
-For the given user query and context, generate a step-by-step plan. For each step, you **must** provide the following:
+CRITICAL RULES
+1) Use only the listed actions exactly as named (no waitForElement/getContext variants).
+2) If there is no meaningful current URL/context, plan to navigate first, then call getPageContext before interacting.
+3) After each state-changing action (navigate/click/type/scroll), include verifiable validation (getPageContext or explicit criteria).
+4) Each step includes: action, target, reasoning, expectedOutcome; include validationCriteria and fallbackAction when useful.
+5) Prefer stable, semantic selectors over coordinates.
+6) Avoid repeated failing actions; propose meaningful fallbacks.
+7) Plan until the goal can be achieved; do not stop early; avoid redundant steps.
 
-1.  **Action:** The specific function call to execute. Use CSS selectors for \`selector\`.
-2.  **Rationale:** A brief justification for this step.
-3.  **Validation:** A clear, verifiable condition to confirm the step succeeded.
-4.  **Fallback:** A practical action to take if the step fails.
+PLANNING PRINCIPLES (Atlas-style)
+- Orthogonality: Steps cover distinct subgoals with minimal overlap.
+- Depth: Critical steps include validation plus a concrete fallback.
+- Critical Path: Identify must-succeed steps and harden them with validation.
+- Parameter Clarity: Make required parameters explicit and verifiable.
+- Idempotence: Plans are safe to resume.
 
----
-**Example:**
+OUTPUT CONTRACT
+- Conform strictly to the schema (no extra prose). Fields should be concise and actionable.
 
-**User Query:** "Log me into myapp.com with username 'testuser' and password 'password123'."
-**Current URL:** \`https://myapp.com/login\`
+PATTERN EXAMPLES (generic)
+- Forms: getPageContext → type_text → getPageContext → click → getPageContext
+- Info-seeking: navigate (if needed) → getPageContext → interact (type/click) → verify → repeat until data is available → finalize
 
-**Execution Plan:**
-1.  **Action:** \`type\`
-    *   **Target:** "input[name='username']" with text "testuser"
-    *   **Rationale:** To enter the username into the corresponding input field.
-    *   **Validation:** The input field's value is "testuser".
-    *   **Fallback:** Use \`getPageContext\` and retry with a more specific selector (e.g., \`#username\`). If it still fails, report "Username field not found."
+COMPLETION
+- End at a state where the executing agent can provide a final answer or artifact after verification.`;
 
-2.  **Action:** \`type\`
-    *   **Target:** "input[name='password']" with text "password123"
-    *   **Rationale:** To enter the password into its field.
-    *   **Validation:** The input field is populated (value is masked).
-    *   **Fallback:** Use \`getPageContext\` and retry with a more specific selector (e.g., \`#password\`). If it still fails, report "Password field not found."
-
-3.  **Action:** \`click\`
-    *   **Target:** "button[type='submit']"
-    *   **Rationale:** To submit the login form.
-    *   **Validation:** The page URL changes or a dashboard element appears.
-    *   **Fallback:** Retry the click. If it fails again, try an alternative selector like \`button.login-btn\`. Report failure if unsuccessful.
-
-4.  **Action:** \`wait\`
-    *   **Target:** "div.dashboard-header"
-    *   **Rationale:** To confirm a successful login by waiting for a key element on the post-login page to appear.
-    *   **Validation:** The element \`div.dashboard-header\` becomes visible within 5 seconds.
-    *   **Fallback:** Check for an error message like \`.error-message\`. If found, report "Login failed: Invalid credentials." Otherwise, report "Login confirmation failed."`;
+  const systemAddendum = (await import('./lib/system-addendum')).renderAddendum?.('ADDENDUM');
+  const systemPromptWithAddendum = systemAddendum ? `${systemPrompt}\n\n${systemAddendum}` : systemPrompt;
 
   const contextInfo = currentUrl 
     ? `Current URL: ${currentUrl}\n${pageContext ? `Page Title: ${pageContext.title || 'Unknown'}\nPage Text Preview: ${(pageContext.text || '').substring(0, 500)}` : ''}`
@@ -211,7 +206,7 @@ For the given user query and context, generate a step-by-step plan. For each ste
     'Task: Generate an optimal execution plan using GEPA-inspired reflective evolution and DeepResearch orthogonality & depth principles.',
     '',
     'Requirements:',
-    '1. **ALWAYS start with getPageContext()** after navigation and BEFORE any interactions',
+    '1. **If there is no meaningful current URL or page context, start by navigate() to a relevant site (or a search engine), then call getPageContext()**',
     '2. Break down the query into granular, orthogonal, executable steps (minimize overlap, maximize coverage)',
     '3. Ensure each step has sufficient depth (action + reasoning + validation + fallback)',
     '4. Reflect on optimal approaches (e.g., selector vs coordinates, efficiency gains)',
@@ -223,7 +218,7 @@ For the given user query and context, generate a step-by-step plan. For each ste
     '10. Verify depth: each step should have 3-4 layers of inquiry (action → reasoning → validation → fallback)',
     '',
     'Validated Patterns to Consider:',
-    '- **MANDATORY**: After navigate(), ALWAYS call getPageContext() FIRST to see actual page elements',
+    '- **MANDATORY**: After navigate(), call getPageContext() FIRST to see actual page elements',
     '- **MANDATORY**: Before type(), click(), or any element interaction, verify element exists via getPageContext()',
     '- Tool execution includes automatic retries for connection errors',
     '- Timeouts prevent indefinite hangs (plan accordingly)',
@@ -232,7 +227,7 @@ For the given user query and context, generate a step-by-step plan. For each ste
     '- Page context verification ensures step completion before proceeding',
     '- NEVER assume form elements exist - always verify with getPageContext() first',
     '',
-    'Think step-by-step, reflect on best practices and tested patterns, then generate the plan.',
+    'Special case — information-seeking queries (e.g., "tell me about X", "who is Y"):\n      - If no specific destination is provided, plan to: navigate("https://www.google.com") → type_text("input[name=\'q\']", "<query>") → press_key("Enter") → wait(2) → getPageContext() → click("#search a h3") → getPageContext() to gather details, then summarize.\n      - Do not stop after the first navigation; ensure you reach a content page and extract information.\n\nThink step-by-step, reflect on best practices and tested patterns, then generate the plan.',
   ].join('\n');
 
   try {
@@ -244,7 +239,7 @@ For the given user query and context, generate a step-by-step plan. For each ste
       schema: evaluationSchema,
       schemaName: 'ExecutionPlan',
       schemaDescription: 'A structured execution plan for browser automation with steps, critical paths, and optimization suggestions. The response must have confidence at the root level, not inside plan.',
-      system: systemPrompt,
+      system: systemPromptWithAddendum,
       prompt: userPrompt,
       maxRetries: 2, // Retry on schema validation failures
       experimental_repairText: async ({ text }) => {
@@ -646,4 +641,3 @@ export function formatPlanAsInstructions(plan: ExecutionPlan): string {
 
 // Export dynamic calculation functions
 export { calculateComplexityScore, calculateConfidence };
-

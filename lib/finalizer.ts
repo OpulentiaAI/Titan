@@ -20,6 +20,7 @@ export async function finalizeReport(
   opts: FinalizerOptions
 ): Promise<string> {
   const { generateText } = await import('ai');
+  const { renderAddendum } = await import('./system-addendum');
 
   // Pick model for finalization
   let model: any;
@@ -58,7 +59,7 @@ export async function finalizeReport(
     })
     .join('\n\n');
 
-  const systemPrompt = `You are a senior editor with multiple best-selling books and columns published in top magazines. You break conventional thinking, establish unique cross-disciplinary connections, and bring new perspectives to the user.
+  const baseSystemPrompt = `You are a senior editor with multiple best-selling books and columns published in top magazines. You break conventional thinking, establish unique cross-disciplinary connections, and bring new perspectives to the user.
 
 Your task is to revise the provided markdown content (written by your junior intern) while preserving its original vibe, delivering a polished and professional version.
 
@@ -103,6 +104,8 @@ ${knowledgeStr ? `The following knowledge items are provided for your reference.
 
 IMPORTANT: Do not begin your response with phrases like "Sure", "Here is", "Below is", or any other introduction. Directly output your revised content in ${opts.languageStyle || 'English'} that is ready to be published. Preserving HTML tables if exist, never use triple backticks html to wrap html table.`;
 
+  const systemPrompt = [baseSystemPrompt, renderAddendum('ADDENDUM')].join('\n\n');
+
   try {
     const result = await generateText({
       model,
@@ -124,4 +127,3 @@ IMPORTANT: Do not begin your response with phrases like "Sure", "Here is", "Belo
     return mdContent;
   }
 }
-

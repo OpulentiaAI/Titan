@@ -49,17 +49,13 @@ async function testProductionWorkflow() {
   // Production config with real API keys (from settings.tsx)
   const prodConfig: BrowserAutomationWorkflowInput = {
     userQuery: `go to espn and summarize latest news - ${Date.now()}`, // Add timestamp to avoid cache
+
     settings: {
-      provider: 'gateway',
-      apiKey: 'vck_8Y9AYNnloksx9iwr4HkTdwpz1IyeszKLtvbEitKEwFj6LRCim14fhM9U',
-      model: 'google/gemini-2.5-flash-lite',
-      toolMode: 'tool-router',
-      composioApiKey: '',
-      youApiKey: 'ydc-sk-73e008775485cecf-7amBugk9VyOK17smt4LzLwcrVQ5K6UBK-14332916<__>1SO0a7ETU8N2v5f4EbzspvJg',
-      braintrustApiKey: '',
-      braintrustProjectName: 'atlas-extension',
-      computerUseEngine: 'gateway-flash-lite',
-      devtoolsEnabled: true,
+      provider: 'openrouter',
+      model: 'openai/gpt-4o-mini', // Try OpenAI model which has better tool calling support
+      apiKey: process.env.OPENROUTER_API_KEY || process.env.AI_GATEWAY_API_KEY || '',
+      youApiKey: process.env.YOU_API_KEY || '',
+      braintrustApiKey: process.env.BRAINTRUST_API_KEY || '',
     },
     initialContext: {
       pageContext: {

@@ -566,6 +566,47 @@ This project is licensed under the **Apache 2.0 License** - see the [LICENSE](LI
 
 ---
 
+## 🆕 Recent Library Updates
+
+### Enhanced System Design Integration (November 4, 2024)
+
+Updated the prompt optimization library to align with the three-phase validation protocol:
+
+#### Updated Files
+- **apply-optimized-prompts.ts**: Updated source file references to enhanced workflow, added browser-automation-streaming target
+- **extract-best-prompts.ts**: Enhanced output documentation with new system features
+- **browser-automation/dspyground.config.ts**: Complete rewrite with three-phase protocol
+
+#### New Evaluation Metrics (Protocol-Aligned)
+- **state_awareness** (2.0x weight) - Phase 1: Complete state before action
+- **parameter_validation** (1.8x weight) - Phase 2: Validated parameters  
+- **verification_completeness** (1.7x weight) - Phase 3: Post-action verification
+- **security_compliance** (1.5x weight) - Security & boundaries
+
+#### Expected Improvements
+| Metric | Baseline | Target | Improvement |
+|--------|----------|--------|-------------|
+| State Awareness | 0.50 | 0.90+ | +80% |
+| Parameter Validation | 0.60 | 0.85+ | +42% |
+| Verification Completeness | 0.40 | 0.85+ | +113% |
+| Security Compliance | 0.70 | 0.95+ | +36% |
+| **Overall Score** | **0.55** | **0.88+** | **+60%** |
+
+#### Quick Start
+```bash
+# Fast optimization (5-10 minutes)
+npm run optimize:fast
+
+# Full optimization (30-60 minutes)
+npm run optimize:all:direct
+
+# Extract and apply results
+npm run optimize:extract
+npm run optimize:apply
+```
+
+---
+
 **Built with ❤️ by Opulentia AI - Democratizing AI prompt optimization for everyone.**
 
 ---

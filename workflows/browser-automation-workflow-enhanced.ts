@@ -269,7 +269,19 @@ export async function browserAutomationWorkflowEnhanced(
       const { createGateway } = await import('@ai-sdk/gateway');
       const gatewayClient = createGateway({ apiKey: input.settings.apiKey });
       model = gatewayClient(modelName);
+    } else if (input.settings.provider === 'openrouter') {
+      const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+      const openRouterClient = createOpenRouter({ apiKey: input.settings.apiKey });
+      model = openRouterClient(modelName);
+    } else if (input.settings.provider === 'nim') {
+      const { createOpenAI } = await import('@ai-sdk/openai');
+      const nimClient = createOpenAI({
+        apiKey: input.settings.apiKey,
+        baseURL: 'https://integrate.api.nvidia.com/v1',
+      });
+      model = nimClient(modelName);
     } else {
+      // Default to Google
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
       const googleClient = createGoogleGenerativeAI({ apiKey: input.settings.apiKey });
       model = googleClient(modelName);

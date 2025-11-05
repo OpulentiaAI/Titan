@@ -76,12 +76,15 @@ async function benchmarkProviders() {
 
   // Provider C
   if (process.env.OPENROUTER_API_KEY) {
-    const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
-    const openrouterClient = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
+    const openrouterClient = createOpenAICompatible({
+      name: 'openrouter',
+      baseURL: 'https://openrouter.ai/api/v1',
+      apiKey: process.env.OPENROUTER_API_KEY,
+    });
     providers.push({
       name: 'Provider C',
       model: 'minimax/minimax-m2',
-      client: openrouterClient('minimax/minimax-m2')
+      client: openrouterClient.chatModel('minimax/minimax-m2')
     });
   }
 

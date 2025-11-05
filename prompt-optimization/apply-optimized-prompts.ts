@@ -21,10 +21,10 @@ interface OptimizedPrompt {
 const SOURCE_FILES = {
   planner: {
     path: join(__dirname, '..', 'planner.ts'),
-    startLine: 124,
-    endLine: 168,
+    startLine: 151,
+    endLine: 209,
     variable: 'systemPrompt',
-    description: 'Planning agent system prompt with validation and fallback strategies',
+    description: 'Planning agent system prompt with GEPA-optimized validation and fallback strategies',
   },
   evaluator: {
     path: join(__dirname, '..', 'evaluator.ts'),
@@ -34,11 +34,18 @@ const SOURCE_FILES = {
     description: 'Search result evaluation prompt',
   },
   'browser-automation': {
-    path: join(__dirname, '..', 'workflows', 'browser-automation-workflow.legacy.ts'),
-    startLine: 118,
-    endLine: 220,
-    variable: 'systemLines',
-    description: 'Legacy browser automation workflow with enhanced reasoning patterns',
+    path: join(__dirname, '..', 'workflows', 'browser-automation-workflow-enhanced.ts'),
+    startLine: 339,
+    endLine: 428,
+    variable: 'systemPrompt',
+    description: 'Enhanced browser automation workflow with three-phase validation protocol (GATHER → EXECUTE → VERIFY)',
+  },
+  'browser-automation-streaming': {
+    path: join(__dirname, '..', 'lib', 'streaming-enhanced.ts'),
+    startLine: 1,
+    endLine: 50,
+    variable: 'systemPrompt',
+    description: 'Enhanced streaming step with approval flow and structured output',
   },
   'gemini-computer-use': {
     path: join(__dirname, '..', 'sidepanel.tsx'),

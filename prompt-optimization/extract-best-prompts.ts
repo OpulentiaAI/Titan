@@ -84,17 +84,21 @@ async function main() {
   
   console.log(`✅ Best prompts extracted to: ${outputFile}`);
   console.log('\n💡 Next: Apply these prompts to source files:');
-  console.log('   - planner.ts (line 124-168) - Planning agent with validation strategies');
+  console.log('   - planner.ts (line 151-209) - GEPA-optimized planning agent');
   console.log('   - evaluator.ts (line 59-61) - Search result evaluation');
-  console.log('   - workflows/browser-automation-workflow.legacy.ts (line 118-220) - Enhanced browser automation');
+  console.log('   - workflows/browser-automation-workflow-enhanced.ts (line 339-428) - Enhanced browser automation');
+  console.log('   - lib/streaming-enhanced.ts - Enhanced streaming step');
   console.log('   - sidepanel.tsx (line 645-678) - Gemini computer use');
-  console.log('\n📊 Enhanced with:');
+  console.log('\n📊 Enhanced System Design Features:');
   console.log('   ✓ State-aware execution (no state assumptions)');
-  console.log('   ✓ Three-phase validation pattern (Gather → Execute → Verify)');
+  console.log('   ✓ Three-phase validation pattern (GATHER → EXECUTE → VERIFY)');
   console.log('   ✓ Multi-level verification with cross-checks');
   console.log('   ✓ Graceful degradation & error recovery');
   console.log('   ✓ Security & data separation principles');
-  console.log('   ✓ Tool boundary verification (no hallucination)');
+  console.log('   ✓ Tool boundary verification (no capability hallucination)');
+  console.log('   ✓ Approval flow for sensitive operations');
+  console.log('   ✓ Structured output tracking');
+  console.log('   ✓ Task management integration');
 }
 
 main().catch(console.error);

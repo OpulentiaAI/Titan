@@ -1,0 +1,77 @@
+{
+  "timestamp": "2025-11-05T03:34:54.004Z",
+  "summary": {
+    "total": 7,
+    "passed": 3,
+    "failed": 4,
+    "duration": 32456,
+    "successRate": 42.857142857142854
+  },
+  "results": [
+    {
+      "testName": "Navigation Workflow",
+      "success": true,
+      "duration": 3454,
+      "details": {
+        "title": "Example Domain"
+      },
+      "errors": []
+    },
+    {
+      "testName": "Page Context Extraction",
+      "success": false,
+      "duration": 8049,
+      "details": {},
+      "errors": [
+        "Cannot read properties of undefined (reading 'title')"
+      ]
+    },
+    {
+      "testName": "Multi-Page Navigation",
+      "success": false,
+      "duration": 1670,
+      "details": {
+        "visitedPages": []
+      },
+      "errors": [
+        "Cannot read properties of undefined (reading 'url')"
+      ]
+    },
+    {
+      "testName": "Form Detection",
+      "success": false,
+      "duration": 2938,
+      "details": {},
+      "errors": [
+        "Cannot read properties of undefined (reading 'length')"
+      ]
+    },
+    {
+      "testName": "Performance Metrics",
+      "success": false,
+      "duration": 1124,
+      "details": {},
+      "errors": [
+        "Cannot read properties of undefined (reading 'domContentLoaded')"
+      ]
+    },
+    {
+      "testName": "Error Handling",
+      "success": true,
+      "duration": 15203,
+      "details": {
+        "errorsCaught": 1
+      },
+      "errors": []
+    },
+    {
+      "testName": "Concurrent Operations",
+      "success": true,
+      "duration": 18,
+      "details": {
+        "operationsCount": 4
+      },
+      "errors": []
+    }
+  ]
+}

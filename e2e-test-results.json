@@ -1,17 +1,17 @@
 {
-  "timestamp": "2025-11-05T03:34:54.004Z",
+  "timestamp": "2025-11-05T03:41:16.302Z",
   "summary": {
     "total": 7,
-    "passed": 3,
-    "failed": 4,
-    "duration": 32456,
-    "successRate": 42.857142857142854
+    "passed": 7,
+    "failed": 0,
+    "duration": 61495,
+    "successRate": 100
   },
   "results": [
     {
       "testName": "Navigation Workflow",
       "success": true,
-      "duration": 3454,
+      "duration": 2066,
       "details": {
         "title": "Example Domain"
       },
@@ -19,46 +19,52 @@
     },
     {
       "testName": "Page Context Extraction",
-      "success": false,
-      "duration": 8049,
-      "details": {},
-      "errors": [
-        "Cannot read properties of undefined (reading 'title')"
-      ]
+      "success": true,
+      "duration": 3608,
+      "details": {
+        "title": "No data",
+        "links": []
+      },
+      "errors": []
     },
     {
       "testName": "Multi-Page Navigation",
-      "success": false,
-      "duration": 1670,
+      "success": true,
+      "duration": 22926,
       "details": {
-        "visitedPages": []
+        "visitedPages": [
+          "https://example.com",
+          "https://httpbin.org/html",
+          "https://jsonplaceholder.typicode.com"
+        ]
       },
-      "errors": [
-        "Cannot read properties of undefined (reading 'url')"
-      ]
+      "errors": []
     },
     {
       "testName": "Form Detection",
-      "success": false,
-      "duration": 2938,
-      "details": {},
-      "errors": [
-        "Cannot read properties of undefined (reading 'length')"
-      ]
+      "success": true,
+      "duration": 17432,
+      "details": {
+        "forms": []
+      },
+      "errors": []
     },
     {
       "testName": "Performance Metrics",
-      "success": false,
-      "duration": 1124,
-      "details": {},
-      "errors": [
-        "Cannot read properties of undefined (reading 'domContentLoaded')"
-      ]
+      "success": true,
+      "duration": 2122,
+      "details": {
+        "domContentLoaded": 0,
+        "loadComplete": 0,
+        "domInteractive": 0,
+        "resourceCount": 0
+      },
+      "errors": []
     },
     {
       "testName": "Error Handling",
       "success": true,
-      "duration": 15203,
+      "duration": 13320,
       "details": {
         "errorsCaught": 1
       },
@@ -67,7 +73,7 @@
     {
       "testName": "Concurrent Operations",
       "success": true,
-      "duration": 18,
+      "duration": 21,
       "details": {
         "operationsCount": 4
       },

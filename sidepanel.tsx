@@ -1924,9 +1924,17 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
           throw new Error('OpenRouter API key is required. Please set it in settings.');
         }
         console.log('🔑 [streamWithAISDK] Creating OpenRouter client with key:', settings.apiKey.substring(0, 10) + '...');
-        const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
-        const openRouterClient = createOpenRouter({ apiKey: settings.apiKey });
-        model = openRouterClient(settings.model);
+        const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+        const openRouterClient = createOpenAICompatible({
+          name: 'openrouter',
+          baseURL: 'https://openrouter.ai/api/v1',
+          headers: {
+            'HTTP-Referer': chrome.runtime.getURL(''),
+            'X-Title': 'Opulent Browser',
+          },
+          apiKey: settings.apiKey,
+        });
+        model = openRouterClient.chatModel(settings.model);
         console.log('✅ [streamWithAISDK] OpenRouter client created for model:', settings.model);
       } else if (settings!.provider === 'nim') {
         if (!settings?.apiKey) {

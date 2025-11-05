@@ -270,9 +270,17 @@ export async function browserAutomationWorkflowEnhanced(
       const gatewayClient = createGateway({ apiKey: input.settings.apiKey });
       model = gatewayClient(modelName);
     } else if (input.settings.provider === 'openrouter') {
-      const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
-      const openRouterClient = createOpenRouter({ apiKey: input.settings.apiKey });
-      model = openRouterClient(modelName);
+      const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+      const openRouterClient = createOpenAICompatible({
+        name: 'openrouter',
+        baseURL: 'https://openrouter.ai/api/v1',
+        headers: {
+          'HTTP-Referer': chrome.runtime.getURL(''),
+          'X-Title': 'Opulent Browser',
+        },
+        apiKey: input.settings.apiKey,
+      });
+      model = openRouterClient.chatModel(modelName);
     } else if (input.settings.provider === 'nim') {
       const { createOpenAI } = await import('@ai-sdk/openai');
       const nimClient = createOpenAI({

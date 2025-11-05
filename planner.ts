@@ -85,14 +85,22 @@ export async function generateExecutionPlan(
       model = client.chatModel(opts.model || 'deepseek-ai/deepseek-r1');
       console.log('✅ [Planner] Provider client created successfully');
     } else if (opts.provider === 'openrouter') {
-      console.log('🔑 [Planner] Creating gateway client...');
-      const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+      console.log('🔑 [Planner] Creating OpenRouter client...');
+      const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
       if (!opts.apiKey) {
-        throw new Error('Gateway API key is required for planning');
+        throw new Error('OpenRouter API key is required for planning');
       }
-      const client = createOpenRouter({ apiKey: opts.apiKey });
-      model = client(opts.model || 'minimax/minimax-m2');
-      console.log('✅ [Planner] Gateway client created successfully');
+      const client = createOpenAICompatible({
+        name: 'openrouter',
+        baseURL: 'https://openrouter.ai/api/v1',
+        headers: {
+          'HTTP-Referer': 'https://opulentia.ai',
+          'X-Title': 'Opulent Browser',
+        },
+        apiKey: opts.apiKey,
+      });
+      model = client.chatModel(opts.model || 'minimax/minimax-m2');
+      console.log('✅ [Planner] OpenRouter client created successfully');
     } else {
       console.log('🔑 [Planner] Creating Google Generative AI client...');
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google');

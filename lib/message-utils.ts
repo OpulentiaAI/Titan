@@ -1,5 +1,5 @@
 import type { Message } from "../types";
-import { convertLegacyTasks } from "./task-manager";
+import { convertTasks } from "./task-manager";
 
 type WorkflowOutput = any; // Keep flexible to avoid import churn in tests
 
@@ -93,7 +93,7 @@ export function buildFinalSummaryMessage(workflowOutput: WorkflowOutput): Messag
       finalUrl: workflowOutput?.finalUrl,
     },
     workflowTasks: workflowOutput?.taskManager
-      ? convertLegacyTasks(workflowOutput.taskManager.getAllTasks()).map((t) => ({
+      ? convertTasks(workflowOutput.taskManager.getAllTasks()).map((t) => ({
           id: t.id,
           title: t.title,
           description: t.description,

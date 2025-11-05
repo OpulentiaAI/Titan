@@ -365,14 +365,14 @@ export function createWorkflowTaskManager(options?: TaskManagerOptions): TaskMan
 }
 
 /**
- * Convert legacy workflow tasks to new TaskManager format
+ * Normalize raw workflow tasks to TaskManager format
  */
-export function convertLegacyTasks(legacyTasks: Array<{id: string, title: string, status?: string, description?: string}>): Task[] {
-  return legacyTasks.map(legacy => ({
-    id: legacy.id,
-    title: legacy.title,
-    description: legacy.description,
-    status: (legacy.status as TaskStatus) || 'pending',
+export function convertTasks(rawTasks: Array<{id: string, title: string, status?: string, description?: string}>): Task[] {
+  return rawTasks.map(t => ({
+    id: t.id,
+    title: t.title,
+    description: t.description,
+    status: (t.status as TaskStatus) || 'pending',
     priority: 'medium',
     createdAt: Date.now(),
     updatedAt: Date.now(),

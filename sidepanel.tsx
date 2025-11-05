@@ -1443,13 +1443,36 @@ ${preSearchBlock ? preSearchBlock + '\n' : ''}${evaluationBlock ? evaluationBloc
         const gatewayClient = createGateway({ apiKey: settings.apiKey });
         model = gatewayClient(settings.model);
         console.log('✅ [streamWithAISDKAndMCP] AI Gateway client created for model:', settings.model);
+      } else if (settings!.provider === 'openrouter') {
+        if (!settings?.apiKey) {
+          throw new Error('OpenRouter API key is required. Please set it in settings.');
+        }
+        console.log('🔑 [streamWithAISDKAndMCP] Creating OpenRouter client with key:', settings.apiKey.substring(0, 10) + '...');
+        const { createOpenRouter } = await import('@openrouter/ai-sdk-provider');
+        const openRouterClient = createOpenRouter({ apiKey: settings.apiKey });
+        model = openRouterClient(settings.model);
+        console.log('✅ [streamWithAISDKAndMCP] OpenRouter client created for model:', settings.model);
+      } else if (settings!.provider === 'nim') {
+        if (!settings?.apiKey) {
+          throw new Error('NVIDIA NIM API key is required. Please set it in settings.');
+        }
+        console.log('🔑 [streamWithAISDKAndMCP] Creating NVIDIA NIM client with key:', settings.apiKey.substring(0, 10) + '...');
+        const { createOpenAI } = await import('@ai-sdk/openai');
+        const nimClient = createOpenAI({
+          apiKey: settings.apiKey,
+          baseURL: 'https://integrate.api.nvidia.com/v1',
+        });
+        model = nimClient(settings.model);
+        console.log('✅ [streamWithAISDKAndMCP] NVIDIA NIM client created for model:', settings.model);
       } else {
         if (!settings?.apiKey) {
           throw new Error('Google API key is required. Please set it in settings.');
         }
+        console.log('🔑 [streamWithAISDKAndMCP] Creating Google AI client with key:', settings.apiKey.substring(0, 10) + '...');
         const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
         const googleClient = createGoogleGenerativeAI({ apiKey: settings.apiKey });
         model = googleClient(settings.model);
+        console.log('✅ [streamWithAISDKAndMCP] Google AI client created for model:', settings.model);
       }
 
       // Convert messages to AI SDK format
